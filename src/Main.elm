@@ -10,6 +10,7 @@ import Http exposing (..)
 import Json.Decode as Decode exposing (Decoder, bool, int, list, string)
 import Json.Decode.Pipeline exposing (custom, hardcoded, required)
 import List.Extra as List
+import Dict exposing (Dict)
 
 
 
@@ -29,14 +30,12 @@ type alias Pokemon =
     , types : (List String)
     }
 
-type PokemonType =
-    PokemonType String String
-
-fire = PokemonType "Fire" "#aaa"
-water = PokemonType "Water" "#bbb"
-
-types = [fire,water]
-
+pokemonTypes : Dict String String
+pokemonTypes =
+    Dict.fromList
+        [ ("fire", "#FF0000")
+        , ("water", "#00BFFF")
+        ]
 
 pokemonDecoder : Decoder Pokemon
 pokemonDecoder =
@@ -111,7 +110,8 @@ pokemon pokemonRecord =
 
 pokemonType : String -> Html Msg
 pokemonType name =
-    div [class "col-6"] [text name]
+    div [class "col-6", style "color" (getColorFromType name)
+        ] [text name]
 
 
 navbar : Html Msg
@@ -127,10 +127,15 @@ navbar =
 
 
 
-
-
-
 ---- PROGRAM ----
+
+getColorFromType : String -> String
+getColorFromType typeName =
+    case Dict.get typeName pokemonTypes of
+        Just color ->
+            color
+        Nothing ->
+            "#000000"
 
 
 capitalize : Bool -> String -> String
