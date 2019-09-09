@@ -1,5 +1,7 @@
 module Main exposing (..)
 
+-- import Regex exposing (replace)
+
 import Bootstrap.CDN as CDN
 import Browser exposing (Document, UrlRequest(..))
 import Browser.Navigation as Nav
@@ -8,10 +10,11 @@ import Dict exposing (Dict)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Http exposing (..)
-import Json.Decode as Decode exposing (Decoder, bool, dict, float, int, keyValuePairs, list, maybe, string)
-import Json.Decode.Pipeline exposing (custom, hardcoded, required)
+import Json.Decode as Decode exposing (Decoder, bool, dict, float, int, keyValuePairs, list, maybe, nullable, string)
+import Json.Decode.Pipeline exposing (custom, hardcoded, optional, required)
 import List.Extra as List
 import Platform.Cmd exposing (Cmd)
+import Regex exposing (..)
 import Url exposing (Url)
 import Url.Parser as UrlParser exposing ((</>), Parser, int, map, oneOf, parse, s, top)
 
@@ -22,10 +25,21 @@ import Url.Parser as UrlParser exposing ((</>), Parser, int, map, oneOf, parse, 
 
 type alias Model =
     { navKey : Nav.Key
-    , pokemons : List Pokemon
-    , selectedPokemon : Maybe FullPokemon
+    , pokemons : WebData (List Pokemon)
+    , selectedPokemon : WebData FullPokemon
     , currentPage : Route
     }
+
+
+type RemoteData error value
+    = NotAsked
+    | Loading
+    | Failure error
+    | Success value
+
+
+type alias WebData a =
+    RemoteData Http.Error a
 
 
 type Route
@@ -119,7 +133,7 @@ type alias PokemonMoves =
     , name : String
     , power : Maybe Int
     , accuracy : Maybe Int
-    , moveType : String
+    , moveType : Maybe String
     , learnMethods : String
     , tmMachineNumber : Int
     }
@@ -128,14 +142,14 @@ type alias PokemonMoves =
 pokemonMovesDecoder : Decoder PokemonMoves
 pokemonMovesDecoder =
     Decode.succeed PokemonMoves
-        |> required "level" (maybe Decode.int)
-        |> required "order" (maybe Decode.int)
-        |> required "damageClass" string
-        |> required "name" string
-        |> required "power" (maybe Decode.int)
-        |> required "accuracy" (maybe Decode.int)
-        |> required "moveType" string
-        |> required "learnMethods" string
+        |> required "level" (nullable Decode.int)
+        |> required "order" (nullable Decode.int)
+        |> optional "damageClass" string "Invalid Damage Class."
+        |> optional "name" string "Invalid Name."
+        |> required "power" (nullable Decode.int)
+        |> required "accuracy" (nullable Decode.int)
+        |> required "type" (nullable string)
+        |> optional "learnMethods" string "Invalid Learn Methods."
         |> required "tmMachineNumber" Decode.int
 
 
@@ -186,7 +200,7 @@ pokemonTypes =
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ _ navKey =
-    ( { navKey = navKey, pokemons = [], currentPage = Pokedex, selectedPokemon = Nothing }
+    ( { navKey = navKey, pokemons = Loading, currentPage = Pokedex, selectedPokemon = NotAsked }
     , Cmd.batch [ getPokedex ]
     )
 
@@ -199,7 +213,7 @@ getPokedex : Cmd Msg
 getPokedex =
     Http.get
         { url = "http://localhost:58803/api/Pokemons"
-        , expect = Http.expectJson PokemonsReceived (Decode.list pokemonDecoder)
+        , expect = Http.expectJson (fromResult >> PokemonsReceived) (Decode.list pokemonDecoder)
         }
 
 
@@ -207,7 +221,7 @@ getPokemon : Int -> Cmd Msg
 getPokemon num =
     Http.get
         { url = "http://localhost:58803/api/Pokemons/" ++ String.fromInt num
-        , expect = Http.expectJson PokemonsReceived (Decode.list pokemonDecoder)
+        , expect = Http.expectJson (fromResult >> FullPokemonReceived) fullPokemonDecoder
         }
 
 
@@ -218,8 +232,8 @@ getPokemon num =
 type Msg
     = ChangeUrl Url
     | ClickLink UrlRequest
-    | PokemonsReceived (Result Http.Error (List Pokemon))
-    | FullPokemonReceived (Result Http.Error FullPokemon)
+    | PokemonsReceived (WebData (List Pokemon))
+    | FullPokemonReceived (WebData FullPokemon)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -231,7 +245,7 @@ update msg model =
                     ( { model | currentPage = Pokedex }, getPokedex )
 
                 SinglePokemon num ->
-                    ( { model | currentPage = SinglePokemon num }, getPokemon num )
+                    ( { model | currentPage = SinglePokemon num, selectedPokemon = Loading }, getPokemon num )
 
                 NotFound ->
                     ( { model | currentPage = NotFound }, Cmd.none )
@@ -244,17 +258,11 @@ update msg model =
                 External url ->
                     ( model, Nav.load url )
 
-        PokemonsReceived (Ok receivedPokemons) ->
-            ( { model | pokemons = receivedPokemons }, Cmd.none )
+        PokemonsReceived response ->
+            ( { model | pokemons = response }, Cmd.none )
 
-        PokemonsReceived (Err _) ->
-            ( model, Cmd.none )
-
-        FullPokemonReceived (Ok receivedPokemon) ->
-            ( { model | selectedPokemon = Maybe.Just receivedPokemon }, Cmd.none )
-
-        FullPokemonReceived (Err _) ->
-            ( model, Cmd.none )
+        FullPokemonReceived response ->
+            ( { model | selectedPokemon = response }, Cmd.none )
 
 
 
@@ -265,7 +273,7 @@ view : Model -> Document Msg
 view model =
     { title = "Pokemon"
     , body =
-        [ div [ class "container" ]
+        [ div [ class "container-fluid" ]
             [ CDN.stylesheet
             , div [ class "row" ]
                 [ div [ class "col" ]
@@ -273,15 +281,32 @@ view model =
                 ]
             , case model.currentPage of
                 Pokedex ->
-                    pokedex model.pokemons
+                    case model.pokemons of
+                        NotAsked ->
+                            text ""
+
+                        Loading ->
+                            h3 [] [ text "Loading..." ]
+
+                        Success pokemons ->
+                            pokedex pokemons
+
+                        Failure _ ->
+                            h2 [] [ text "HTTP Error" ]
 
                 SinglePokemon _ ->
                     case model.selectedPokemon of
-                        Just poke ->
+                        NotAsked ->
+                            text ""
+
+                        Loading ->
+                            h3 [] [ text "Loading..." ]
+
+                        Success poke ->
                             singlePokemon poke
 
-                        Nothing ->
-                            h2 [] [ text "Not found." ]
+                        Failure _ ->
+                            h2 [] [ text "HTTP Error" ]
 
                 NotFound ->
                     div [] [ text "Page not Found." ]
@@ -298,32 +323,61 @@ pokedex pokemons =
 
 pokemon : Pokemon -> Html Msg
 pokemon pokemonRecord =
+    let
+        firstType =
+            case List.head pokemonRecord.types of
+                Just elem ->
+                    elem
+
+                Nothing ->
+                    ""
+
+        types =
+            if List.length pokemonRecord.types == 2 then
+                div [ class "row justify-content-center no-gutters" ]
+                    (List.map (\elem -> pokemonType elem (firstType == elem)) pokemonRecord.types)
+
+            else
+                div [ class "row justify-content-center no-gutters" ]
+                    [ pokemonType firstType False ]
+    in
     div [ class "col-2 text-center" ]
         [ pokemonImg Sprite pokemonRecord.name
-        , button [ class "btn btn-link" ] [ text (capitalize True pokemonRecord.name) ]
-        , div [ class "row justify-content-center" ]
-            (List.map pokemonType pokemonRecord.types)
+        , a [ class "btn btn-link", href ("pokemon/" ++ String.fromInt pokemonRecord.id) ] [ text (capitalize True pokemonRecord.name) ]
+        , types
         ]
 
 
 pokemonImg : PokemonImage -> String -> Html Msg
 pokemonImg imgType pokemonName =
-    let
-        url =
-            case imgType of
-                Full ->
+    case imgType of
+        Full ->
+            let
+                url =
                     String.concat [ " https://img.pokemondb.net/artwork/", String.toLower pokemonName, ".jpg" ]
+            in
+            img [ class "img-fluid", style "margin" "0", style "width" "100%", style "heigth" "auto", src url ] []
 
-                Sprite ->
+        Sprite ->
+            let
+                url =
                     String.concat [ "https://img.pokemondb.net/sprites/omega-ruby-alpha-sapphire/dex/normal/", String.toLower pokemonName, ".png" ]
+            in
+            img [ class "img-fluid", style "margin" "0", src url ] []
+
+
+pokemonType : String -> Bool -> Html Msg
+pokemonType name renderDash =
+    let
+        dash =
+            if renderDash then
+                " - "
+
+            else
+                ""
     in
-    img [ class "img-fluid", style "margin" "0", src url ] []
-
-
-pokemonType : String -> Html Msg
-pokemonType name =
     div
-        [ class "col-6"
+        [ class "col-4"
         , style "color" (getColorFromType name)
         ]
         [ text name ]
@@ -334,11 +388,11 @@ singlePokemon pokemonRecord =
     div []
         [ div
             [ class "row" ]
-            [ div [ class "col-6" ]
+            [ div [ class "col-4" ]
                 [ pokemonImg Full pokemonRecord.name
                 ]
-            , div [ class "col-6" ]
-                [ h2 [ class "text-center" ] [ text pokemonRecord.name ]
+            , div [ class "col-8" ]
+                [ h2 [ class "text-center" ] [ text (capitalize True pokemonRecord.name) ]
                 , div
                     [ class "row" ]
                     [ div
@@ -347,15 +401,61 @@ singlePokemon pokemonRecord =
                             [ tbody []
                                 [ tr []
                                     [ td [ class "w-25 text-muted" ] [ text "Pokemon:" ]
-                                    , td [] [ text pokemonRecord.name ]
+                                    , td [] [ text (capitalize True pokemonRecord.name) ]
                                     ]
                                 , tr []
                                     [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Type:" ]
-                                    , td [] (List.map pokemonType pokemonRecord.types)
+                                    , td [] (List.map (\elem -> pokemonType elem False) pokemonRecord.types)
                                     ]
                                 , tr []
                                     [ td [ class "w-25 text-muted" ] [ text "Dex No.:" ]
                                     , td [] [ text (pokemonRecord.id |> String.fromInt) ]
+                                    ]
+                                , tr []
+                                    [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Abilities.:" ]
+                                    , td []
+                                        (List.map pokemonAbility pokemonRecord.abilities)
+                                    ]
+                                , tr []
+                                    [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Height:" ]
+                                    , td []
+                                        [ text (String.fromFloat pokemonRecord.height ++ " m") ]
+                                    ]
+                                , tr []
+                                    [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Weight:" ]
+                                    , td []
+                                        [ text (String.fromFloat pokemonRecord.weight ++ " kg") ]
+                                    ]
+                                ]
+                            ]
+                        ]
+                    , div [ class "col-6" ]
+                        [ table [ class "table" ]
+                            [ tbody []
+                                [ tr []
+                                    [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Base Exp.:" ]
+                                    , td []
+                                        [ text (String.fromInt pokemonRecord.baseExperience) ]
+                                    ]
+                                , tr []
+                                    [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Capture Rate:" ]
+                                    , td []
+                                        [ text (String.fromInt pokemonRecord.captureRate) ]
+                                    ]
+                                , tr []
+                                    [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Base Happiness:" ]
+                                    , td []
+                                        [ text (String.fromInt pokemonRecord.baseHappiness) ]
+                                    ]
+                                , tr []
+                                    [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Gender:" ]
+                                    , td []
+                                        [ pokemonGender pokemonRecord.genderRate ]
+                                    ]
+                                , tr []
+                                    [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Hatch Counter:" ]
+                                    , td []
+                                        [ text (String.fromInt (pokemonRecord.hatchCounter * 257) ++ " steps") ]
                                     ]
                                 ]
                             ]
@@ -366,14 +466,70 @@ singlePokemon pokemonRecord =
         ]
 
 
+pokemonAbility : PokemonAbilities -> Html Msg
+pokemonAbility ability =
+    let
+        abilityEffect =
+            ability.shortEffect
+                |> regexReplace "({.*?})" (\_ -> "")
+                |> regexReplace "(\\[*\\]*)" (\_ -> "")
+
+        abilityTextHtml =
+            let
+                abilityText =
+                    capitalize True ability.name
+            in
+            if ability.isHidden then
+                small [] [ text (abilityText ++ " (Hidden)") ]
+
+            else
+                text abilityText
+    in
+    div [ class "row" ]
+        [ div [ class "col" ]
+            [ div [ class "tooltip-custom" ]
+                [ abilityTextHtml
+                , span
+                    [ class "tooltiptext" ]
+                    [ text abilityEffect ]
+                ]
+            ]
+        ]
+
+
+pokemonGender : Int -> Html Msg
+pokemonGender genderRate =
+    if genderRate == -1 then
+        text "Genderless"
+
+    else
+        let
+            femalePercentage =
+                (toFloat genderRate / 8) * 100
+
+            malePercentage =
+                100 - femalePercentage
+        in
+        div [ class "row justify-content-between" ]
+            [ div [ class "col-6" ]
+                [ span [ style "color" "#39f" ]
+                    [ text (String.fromFloat malePercentage ++ "% Male") ]
+                ]
+            , div [ class "col-6" ]
+                [ span
+                    [ style "color" "#f59" ]
+                    [ text (String.fromFloat femalePercentage ++ "% Female") ]
+                ]
+            ]
+
+
 navbar : Html Msg
 navbar =
     nav [ class "navbar navbar-light bg-light justify-content-start" ]
         [ span [ class "navbar-brand mb-0 h1" ] [ text "Navbar" ]
-        , ul [ class "navbar-nav" ]
+        , ul [ class "navbar-nav mr-auto" ]
             [ li [ class "nav-item" ]
                 [ a [ class "nav-link", href "/pokedex" ] [ text "Pokédex" ]
-                , a [ class "nav-link", href "/pokemon/2" ] [ text "Pokemon" ]
                 ]
             ]
         ]
@@ -418,6 +574,26 @@ route =
         , map Pokedex (s "pokedex")
         , map SinglePokemon (s "pokemon" </> UrlParser.int)
         ]
+
+
+regexReplace : String -> (Regex.Match -> String) -> String -> String
+regexReplace userRegex replacer string =
+    case Regex.fromString userRegex of
+        Nothing ->
+            string
+
+        Just regex ->
+            Regex.replace regex replacer string
+
+
+fromResult : Result e a -> RemoteData e a
+fromResult result =
+    case result of
+        Err e ->
+            Failure e
+
+        Ok x ->
+            Success x
 
 
 toRoute : String -> Route
