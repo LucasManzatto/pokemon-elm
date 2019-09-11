@@ -6,6 +6,7 @@ import Browser.Navigation as Nav
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Http exposing (get)
+import Ionicon
 import Json.Decode as Decode exposing (list)
 import List.Extra as List
 import Platform.Cmd exposing (Cmd)
@@ -22,9 +23,10 @@ import Utils exposing (..)
 type alias Model =
     { navKey : Nav.Key
     , pokemons : WebData (List Pokemon)
-    , pokemonsGroupedByGen : List ( Pokemon, List Pokemon )
     , selectedPokemon : WebData FullPokemon
+    , selectedPokemonEvolutionChain : List PokemonEvolutionChain
     , currentPage : Route
+    , maxStats : Maybe PokemonStats
     }
 
 
@@ -34,7 +36,8 @@ init _ _ navKey =
       , pokemons = Loading
       , currentPage = Pokedex
       , selectedPokemon = NotAsked
-      , pokemonsGroupedByGen = []
+      , selectedPokemonEvolutionChain = []
+      , maxStats = Nothing
       }
     , Cmd.batch [ getPokedex ]
     )
@@ -53,14 +56,32 @@ getPokedex =
 
 
 getPokemon : Int -> Cmd Msg
-getPokemon num =
+getPokemon pokemonId =
     Http.get
-        { url = "http://localhost:58803/api/Pokemons/" ++ String.fromInt num
+        { url = "http://localhost:58803/api/Pokemons/" ++ String.fromInt pokemonId
         , expect = Http.expectJson (fromResult >> FullPokemonReceived) fullPokemonDecoder
         }
 
 
+getPokemonEvolutionChain : Int -> Cmd Msg
+getPokemonEvolutionChain pokemonId =
+    Http.get
+        { url = "http://localhost:58803/api/Pokemons/" ++ String.fromInt pokemonId ++ "/evolutionChain"
+        , expect = Http.expectJson (fromResult >> PokemonEvolutionChainReceived) (Decode.list pokemonEvolutionChainDecoder)
+        }
 
+
+getMaxStats : Cmd Msg
+getMaxStats =
+    Http.get
+        { url = "http://localhost:58803/api/Pokemons/maxStats"
+        , expect =
+            Http.expectJson (fromResult >> MaxStatsReceived) pokemonStatsDecoder
+        }
+
+
+
+-- api/Pokemons/maxStats
 ------------------------- UPDATE
 
 
@@ -69,6 +90,8 @@ type Msg
     | ClickLink UrlRequest
     | PokemonsReceived (WebData (List Pokemon))
     | FullPokemonReceived (WebData FullPokemon)
+    | PokemonEvolutionChainReceived (WebData (List PokemonEvolutionChain))
+    | MaxStatsReceived (WebData PokemonStats)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -79,8 +102,10 @@ update msg model =
                 Pokedex ->
                     ( { model | currentPage = Pokedex }, getPokedex )
 
-                SinglePokemon num ->
-                    ( { model | currentPage = SinglePokemon num, selectedPokemon = Loading }, getPokemon num )
+                SinglePokemon pokemonId ->
+                    ( { model | currentPage = SinglePokemon pokemonId, selectedPokemon = Loading }
+                    , Cmd.batch [ getPokemon pokemonId, getPokemonEvolutionChain pokemonId ]
+                    )
 
                 NotFound ->
                     ( { model | currentPage = NotFound }, Cmd.none )
@@ -98,6 +123,22 @@ update msg model =
 
         FullPokemonReceived response ->
             ( { model | selectedPokemon = response }, Cmd.none )
+
+        PokemonEvolutionChainReceived response ->
+            case response of
+                Success evolutionChain ->
+                    ( { model | selectedPokemonEvolutionChain = evolutionChain }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        MaxStatsReceived response ->
+            case response of
+                Success maxStats ->
+                    ( { model | maxStats = Just maxStats }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
 
 
 
@@ -138,7 +179,7 @@ view model =
                             h3 [] [ text "Loading..." ]
 
                         Success poke ->
-                            singlePokemon poke
+                            singlePokemon poke model.selectedPokemonEvolutionChain
 
                         Failure _ ->
                             h2 [] [ text "HTTP Error" ]
@@ -164,10 +205,10 @@ pokedex pokemons =
 
 
 pokedexGeneration : ( Pokemon, List Pokemon ) -> Html Msg
-pokedexGeneration ( pokeFromGen, genList ) =
+pokedexGeneration ( firstPokemonFromGen, genList ) =
     let
         generation =
-            pokeFromGen.generation
+            firstPokemonFromGen.generation
                 |> String.replace "-" " "
                 |> String.split " "
 
@@ -195,7 +236,8 @@ pokedexGeneration ( pokeFromGen, genList ) =
             ]
             [ div [ class "col" ] [ text formatedGen ]
             ]
-        , div [ class "row" ] (List.map pokedexPokemon genList)
+        , div [ class "row" ]
+            (List.map pokedexPokemon (firstPokemonFromGen :: genList))
         ]
 
 
@@ -229,7 +271,7 @@ pokedexPokemon pokemonRecord =
             ]
         , div [] [ text formatedPokemonNumber ]
         , div []
-            [ a [ class "btn btn-link font-weight-bold", href ("pokemon/" ++ String.fromInt pokemonRecord.id) ] [ text (capitalize pokemonRecord.name) ] ]
+            [ a [ style "padding" "0", class "btn btn-link font-weight-bold", href ("pokemon/" ++ String.fromInt pokemonRecord.id) ] [ text (capitalize pokemonRecord.name) ] ]
         , div []
             [ types ]
         ]
@@ -286,79 +328,199 @@ pokemonType name renderDash isButtonStyle =
             [ text (capitalize name) ]
 
 
-singlePokemon : FullPokemon -> Html Msg
-singlePokemon pokemonRecord =
+singlePokemon : FullPokemon -> List PokemonEvolutionChain -> Html Msg
+singlePokemon pokemonRecord evolutionChain =
     div
-        [ class "row" ]
+        [ class "row justify-content-center" ]
         [ div [ class "col-4 text-center" ]
             [ pokemonImg Full pokemonRecord.name
             ]
-        , div [ class "col-8" ]
-            [ h2 [ class "text-center" ] [ text (capitalize pokemonRecord.name) ]
-            , div
-                [ class "row" ]
-                [ div
-                    [ class "col-6" ]
-                    [ table [ class "table" ]
-                        [ tbody []
-                            [ tr []
-                                [ td [ class "w-25 text-muted" ] [ text "Pokemon:" ]
-                                , td [] [ text (capitalize pokemonRecord.name) ]
-                                ]
-                            , tr []
-                                [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Type:" ]
-                                , td [] (List.map (\elem -> pokemonType elem False True) pokemonRecord.types)
-                                ]
-                            , tr []
-                                [ td [ class "w-25 text-muted" ] [ text "Dex No.:" ]
-                                , td [] [ text (pokemonRecord.id |> String.fromInt) ]
-                                ]
-                            , tr []
-                                [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Abilities.:" ]
-                                , td []
-                                    (List.map pokemonAbility pokemonRecord.abilities)
-                                ]
-                            , tr []
-                                [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Height:" ]
-                                , td []
-                                    [ text (String.fromFloat pokemonRecord.height ++ " m") ]
-                                ]
-                            , tr []
-                                [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Weight:" ]
-                                , td []
-                                    [ text (String.fromFloat pokemonRecord.weight ++ " kg") ]
-                                ]
+        , div
+            [ class "col-8" ]
+            [ singlePokemonData pokemonRecord ]
+        , div
+            [ class "col-12" ]
+            [ div [ class "row" ]
+                [ div [ class "col-7" ]
+                    [ div [ class "row" ]
+                        [ div [ class "col-12" ]
+                            [ h2 [] [ text "Stats" ] ]
+                        , div [ class "col-12" ]
+                            [ singlePokemonAllStats pokemonRecord.stats
                             ]
                         ]
                     ]
-                , div [ class "col-6" ]
-                    [ table [ class "table" ]
-                        [ tbody []
-                            [ tr []
-                                [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Base Exp.:" ]
-                                , td []
-                                    [ text (String.fromInt pokemonRecord.baseExperience) ]
+                , div [ class "col-5" ]
+                    [ div [ class "row" ]
+                        [ div [ class "col-12" ]
+                            [ h2 [] [ text "Type Defenses" ] ]
+                        , div [ class "col-12" ] []
+                        ]
+                    ]
+                ]
+            ]
+        , div [ class "col-12" ]
+            [ h2 [] [ text "Evolution Chain" ]
+            ]
+        , div
+            [ class "col-10" ]
+            [ singlePokemonEvolutionChain evolutionChain ]
+        ]
+
+
+singlePokemonAllStats : PokemonStats -> Html Msg
+singlePokemonAllStats pokemonStats =
+    table [ class "table table-sm" ]
+        [ tbody []
+            [ singlePokemonSingleStat HP pokemonStats.hp 300
+            ]
+        ]
+
+
+singlePokemonSingleStat : Stats -> Int -> Int -> Html Msg
+singlePokemonSingleStat statName statValue maxStatValue =
+    let
+        ( minValue, maxValue, isBold ) =
+            case statName of
+                HP ->
+                    ( "10", "20", "" )
+
+                Total ->
+                    ( "Min", "Max", "font-weight-bold" )
+
+                _ ->
+                    ( "20", "20", "" )
+    in
+    tr []
+        [ td [ class "text-muted", style "width" "16.66%" ] [ text "HP" ]
+        , td [ class "text-muted", style "width" "8.33%" ] [ text (String.fromInt statValue) ]
+        , td
+            [ class "text-muted"
+            , style "width" "58.33%"
+            , style "vertical-align" "middle"
+            ]
+            [ div [ class "progress" ]
+                [ div [ class "progressbar bg-danger", style "width" "50%" ]
+                    []
+                ]
+            ]
+        , td [ class "text-muted", style "width" "8.33%" ] [ text minValue ]
+        , td [ class "text-muted", style "width" "8.33%" ] [ text maxValue ]
+        ]
+
+
+singlePokemonEvolutionChain : List PokemonEvolutionChain -> Html Msg
+singlePokemonEvolutionChain evolutionChain =
+    let
+        evolutionChainHtml =
+            case List.uncons evolutionChain of
+                Just ( firstFromChain, chainExceptFirst ) ->
+                    div [ class "row text-center justify-content-center" ]
+                        (List.append
+                            [ div
+                                [ class "col-2" ]
+                                [ div []
+                                    [ pokemonImg Sprite firstFromChain.name ]
+                                , div []
+                                    [ text (capitalize firstFromChain.name) ]
                                 ]
-                            , tr []
-                                [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Capture Rate:" ]
-                                , td []
-                                    [ text (String.fromInt pokemonRecord.captureRate) ]
-                                ]
-                            , tr []
-                                [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Base Happiness:" ]
-                                , td []
-                                    [ text (String.fromInt pokemonRecord.baseHappiness) ]
-                                ]
-                            , tr []
-                                [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Gender:" ]
-                                , td []
-                                    [ pokemonGender pokemonRecord.genderRate ]
-                                ]
-                            , tr []
-                                [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Hatch Counter:" ]
-                                , td []
-                                    [ text (String.fromInt (pokemonRecord.hatchCounter * 257) ++ " steps") ]
-                                ]
+                            ]
+                            (List.map
+                                (\pokemon ->
+                                    div [ class "col-4" ]
+                                        [ div [ class "row text-center" ]
+                                            [ div [ class "col-6 d-flex align-items-center justify-content-center" ]
+                                                [ div [ class "row" ]
+                                                    [ div [ class "col-12" ] [ Ionicon.arrowRightC 32 (RGBA 0.14 0.06 0 0.51) ]
+                                                    , div [ class "col-12" ] [ text pokemon.evolutionCondition ]
+                                                    ]
+                                                ]
+                                            , div [ class "col-6" ]
+                                                [ div []
+                                                    [ pokemonImg Sprite pokemon.name ]
+                                                , div []
+                                                    [ text (capitalize pokemon.name) ]
+                                                ]
+                                            ]
+                                        ]
+                                )
+                                chainExceptFirst
+                            )
+                        )
+
+                Nothing ->
+                    div [] []
+    in
+    evolutionChainHtml
+
+
+singlePokemonData : FullPokemon -> Html Msg
+singlePokemonData pokemonRecord =
+    div []
+        [ h2 [ class "text-center" ] [ text (capitalize pokemonRecord.name) ]
+        , div
+            [ class "row" ]
+            [ div
+                [ class "col-6" ]
+                [ table [ class "table" ]
+                    [ tbody []
+                        [ tr []
+                            [ td [ class "w-25 text-muted" ] [ text "Pokemon:" ]
+                            , td [] [ text (capitalize pokemonRecord.name) ]
+                            ]
+                        , tr []
+                            [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Type:" ]
+                            , td [] (List.map (\elem -> pokemonType elem False True) pokemonRecord.types)
+                            ]
+                        , tr []
+                            [ td [ class "w-25 text-muted" ] [ text "Dex No.:" ]
+                            , td [] [ text (pokemonRecord.id |> String.fromInt) ]
+                            ]
+                        , tr []
+                            [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Abilities.:" ]
+                            , td []
+                                (List.map pokemonAbility pokemonRecord.abilities)
+                            ]
+                        , tr []
+                            [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Height:" ]
+                            , td []
+                                [ text (String.fromFloat pokemonRecord.height ++ " m") ]
+                            ]
+                        , tr []
+                            [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Weight:" ]
+                            , td []
+                                [ text (String.fromFloat pokemonRecord.weight ++ " kg") ]
+                            ]
+                        ]
+                    ]
+                ]
+            , div [ class "col-6" ]
+                [ table [ class "table" ]
+                    [ tbody []
+                        [ tr []
+                            [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Base Exp.:" ]
+                            , td []
+                                [ text (String.fromInt pokemonRecord.baseExperience) ]
+                            ]
+                        , tr []
+                            [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Capture Rate:" ]
+                            , td []
+                                [ text (String.fromInt pokemonRecord.captureRate) ]
+                            ]
+                        , tr []
+                            [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Base Happiness:" ]
+                            , td []
+                                [ text (String.fromInt pokemonRecord.baseHappiness) ]
+                            ]
+                        , tr []
+                            [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Gender:" ]
+                            , td []
+                                [ pokemonGender pokemonRecord.genderRate ]
+                            ]
+                        , tr []
+                            [ td [ class "text-muted", style "vertical-align" "middle", style "width" "35%" ] [ text "Hatch Counter:" ]
+                            , td []
+                                [ text (String.fromInt (pokemonRecord.hatchCounter * 257) ++ " steps") ]
                             ]
                         ]
                     ]

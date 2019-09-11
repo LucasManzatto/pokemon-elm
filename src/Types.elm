@@ -63,6 +63,7 @@ type alias FullPokemon =
     , abilities : List PokemonAbilities
     , moves : List PokemonMoves
     , efficacies : Dict String Float
+    , stats : PokemonStats
     }
 
 
@@ -84,6 +85,7 @@ fullPokemonDecoder =
         |> required "abilities" (list pokemonAbilitiesDecoder)
         |> required "moves" (list pokemonMovesDecoder)
         |> required "efficacies" (dict float)
+        |> required "stats" pokemonStatsDecoder
 
 
 type alias PokemonAbilities =
@@ -133,7 +135,8 @@ pokemonMovesDecoder =
 
 
 type alias PokemonStats =
-    { attack : Int
+    { hp : Int
+    , attack : Int
     , defense : Int
     , spAttack : Int
     , spDefense : Int
@@ -145,9 +148,45 @@ type alias PokemonStats =
 pokemonStatsDecoder : Decoder PokemonStats
 pokemonStatsDecoder =
     Decode.succeed PokemonStats
+        |> required "hp" Decode.int
         |> required "attack" Decode.int
         |> required "defense" Decode.int
         |> required "spAttack" Decode.int
         |> required "spDefense" Decode.int
         |> required "speed" Decode.int
         |> required "total" Decode.int
+
+
+type alias PokemonEvolutionChain =
+    { id : Int
+    , name : String
+    , generation : String
+    , evolutionCondition : String
+    }
+
+
+pokemonEvolutionChainDecoder : Decoder PokemonEvolutionChain
+pokemonEvolutionChainDecoder =
+    Decode.succeed PokemonEvolutionChain
+        |> required "id" Decode.int
+        |> optional "name" string "Invalid Name."
+        |> required "generation" string
+        |> optional "evolutionCondition" string ""
+
+
+type alias RGBA =
+    { red : Float
+    , green : Float
+    , blue : Float
+    , alpha : Float
+    }
+
+
+type Stats
+    = HP
+    | Attack
+    | Defense
+    | SpAttack
+    | SpDefense
+    | Speed
+    | Total
