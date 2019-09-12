@@ -33,6 +33,18 @@ pokemonTypes =
         ]
 
 
+efficacyColors : Dict Float String
+efficacyColors =
+    Dict.fromList
+        [ ( 0, "black" )
+        , ( 0.25, "darkred" )
+        , ( 0.5, "firebrick" )
+        , ( 1, "none" )
+        , ( 2, "forestgreen" )
+        , ( 4, "darkgreen" )
+        ]
+
+
 getColorFromType : String -> String
 getColorFromType typeName =
     case Dict.get typeName pokemonTypes of
@@ -41,6 +53,16 @@ getColorFromType typeName =
 
         Nothing ->
             "#000000"
+
+
+getEfficacyColor : Float -> String
+getEfficacyColor efficacy =
+    case Dict.get efficacy efficacyColors of
+        Just color ->
+            color
+
+        Nothing ->
+            "white"
 
 
 capitalize : String -> String
@@ -94,3 +116,13 @@ toRoute string =
 
         Just url ->
             Maybe.withDefault NotFound (parse route url)
+
+
+calculateHpStat : Int -> Int -> Int -> Int
+calculateHpStat iv ev baseStat =
+    (2 * baseStat + iv + (ev // 4)) + 110
+
+
+calculateOtherStat : Int -> Int -> Float -> Int -> Int
+calculateOtherStat iv ev natureMultiplier baseStat =
+    round (toFloat (((2 * baseStat) + iv + (ev // 4)) + 5) * natureMultiplier)

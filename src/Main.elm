@@ -3,6 +3,8 @@ module Main exposing (..)
 import Bootstrap.CDN as CDN
 import Browser exposing (Document, UrlRequest(..))
 import Browser.Navigation as Nav
+import Debug exposing (log)
+import Dict exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Http exposing (get)
@@ -26,8 +28,13 @@ type alias Model =
     , selectedPokemon : WebData FullPokemon
     , selectedPokemonEvolutionChain : List PokemonEvolutionChain
     , currentPage : Route
-    , maxStats : Maybe PokemonStats
+    , maxStats : PokemonStats
     }
+
+
+maxStatsInit : PokemonStats
+maxStatsInit =
+    { hp = 0, attack = 0, defense = 0, spAttack = 0, spDefense = 0, speed = 0, total = 0 }
 
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
@@ -37,9 +44,9 @@ init _ _ navKey =
       , currentPage = Pokedex
       , selectedPokemon = NotAsked
       , selectedPokemonEvolutionChain = []
-      , maxStats = Nothing
+      , maxStats = maxStatsInit
       }
-    , Cmd.batch [ getPokedex ]
+    , Cmd.batch [ getPokedex, getMaxStats ]
     )
 
 
@@ -135,7 +142,7 @@ update msg model =
         MaxStatsReceived response ->
             case response of
                 Success maxStats ->
-                    ( { model | maxStats = Just maxStats }, Cmd.none )
+                    ( { model | maxStats = maxStats }, Cmd.none )
 
                 _ ->
                     ( model, Cmd.none )
@@ -179,7 +186,7 @@ view model =
                             h3 [] [ text "Loading..." ]
 
                         Success poke ->
-                            singlePokemon poke model.selectedPokemonEvolutionChain
+                            singlePokemon poke model.selectedPokemonEvolutionChain model.maxStats
 
                         Failure _ ->
                             h2 [] [ text "HTTP Error" ]
@@ -258,16 +265,16 @@ pokedexPokemon pokemonRecord =
         types =
             if List.length pokemonRecord.types == 2 then
                 div [ class "row justify-content-center no-gutters" ]
-                    (List.map (\elem -> pokemonType elem (firstType == elem) False) pokemonRecord.types)
+                    (List.map (\elem -> pokemonTypeLink (firstType == elem) elem) pokemonRecord.types)
 
             else
                 div [ class "row justify-content-center no-gutters" ]
-                    [ pokemonType firstType False False ]
+                    [ pokemonTypeLink False firstType ]
     in
     div [ class "text-center", style "width" "12.5%" ]
         [ div []
             [ h2 [] []
-            , pokemonImg Sprite pokemonRecord.name
+            , pokemonImgSprite pokemonRecord.name pokemonRecord.generation
             ]
         , div [] [ text formatedPokemonNumber ]
         , div []
@@ -277,8 +284,8 @@ pokedexPokemon pokemonRecord =
         ]
 
 
-pokemonImg : PokemonImage -> String -> Html Msg
-pokemonImg imgType pokemonName =
+pokemonImg : PokemonImage -> String -> String -> Html Msg
+pokemonImg imgType pokemonName generation =
     case imgType of
         Full ->
             let
@@ -290,22 +297,45 @@ pokemonImg imgType pokemonName =
         Sprite ->
             let
                 url =
-                    String.concat [ "https://img.pokemondb.net/sprites/omega-ruby-alpha-sapphire/dex/normal/", String.toLower pokemonName, ".png" ]
+                    if generation == "generation-vii" then
+                        String.concat [ "https://img.pokemondb.net/sprites/ultra-sun-ultra-moon/small/", String.toLower pokemonName, ".jpg" ]
+
+                    else
+                        String.concat [ "https://img.pokemondb.net/sprites/omega-ruby-alpha-sapphire/dex/normal/", String.toLower pokemonName, ".png" ]
             in
             img
                 [ class "img-fluid"
                 , style "margin" "0"
                 , style "position" "relative"
-                , style "top" "15px"
+                , style "top" "10px"
                 , style "z-index" "-10"
                 , src url
                 ]
                 []
 
 
-pokemonType : String -> Bool -> Bool -> Html Msg
-pokemonType name renderDash isButtonStyle =
+pokemonImgFull : String -> Html Msg
+pokemonImgFull pokemonName =
+    pokemonImg Full pokemonName ""
+
+
+pokemonImgSprite : String -> String -> Html Msg
+pokemonImgSprite pokemonName generation =
+    pokemonImg Sprite pokemonName generation
+
+
+pokemonType : Bool -> Bool -> Bool -> String -> Html Msg
+pokemonType isAbbreviated isButtonStyle renderDash name =
     let
+        formatedName =
+            (if isAbbreviated then
+                String.left 3 name
+
+             else
+                name
+            )
+                |> capitalize
+
         dash =
             if renderDash then
                 " - "
@@ -314,26 +344,42 @@ pokemonType name renderDash isButtonStyle =
                 ""
     in
     if isButtonStyle then
-        div
-            [ class "col-4 pokemon-type mr-3"
+        button
+            [ class "pokemon-type"
             , style "background-color" (getColorFromType name)
+            , style "width" "95%"
             ]
-            [ text (capitalize name) ]
+            [ text formatedName ]
 
     else
-        div
-            [ class "col-4"
+        button
+            [ class "btn btn-link"
             , style "color" (getColorFromType name)
             ]
-            [ text (capitalize name) ]
+            [ text formatedName ]
 
 
-singlePokemon : FullPokemon -> List PokemonEvolutionChain -> Html Msg
-singlePokemon pokemonRecord evolutionChain =
+pokemonTypeFull : String -> Html Msg
+pokemonTypeFull =
+    pokemonType False True False
+
+
+pokemonTypeLink : Bool -> String -> Html Msg
+pokemonTypeLink =
+    pokemonType False False
+
+
+pokemonTypeAbbreviated : String -> Html Msg
+pokemonTypeAbbreviated =
+    pokemonType True True False
+
+
+singlePokemon : FullPokemon -> List PokemonEvolutionChain -> PokemonStats -> Html Msg
+singlePokemon pokemonRecord evolutionChain maxStats =
     div
         [ class "row justify-content-center" ]
         [ div [ class "col-4 text-center" ]
-            [ pokemonImg Full pokemonRecord.name
+            [ pokemonImgFull pokemonRecord.name
             ]
         , div
             [ class "col-8" ]
@@ -346,7 +392,7 @@ singlePokemon pokemonRecord evolutionChain =
                         [ div [ class "col-12" ]
                             [ h2 [] [ text "Stats" ] ]
                         , div [ class "col-12" ]
-                            [ singlePokemonAllStats pokemonRecord.stats
+                            [ singlePokemonAllStats pokemonRecord.stats maxStats
                             ]
                         ]
                     ]
@@ -354,7 +400,9 @@ singlePokemon pokemonRecord evolutionChain =
                     [ div [ class "row" ]
                         [ div [ class "col-12" ]
                             [ h2 [] [ text "Type Defenses" ] ]
-                        , div [ class "col-12" ] []
+                        , div [ class "col-12" ]
+                            [ singlePokemonEfficacies pokemonRecord.efficacies
+                            ]
                         ]
                     ]
                 ]
@@ -365,47 +413,191 @@ singlePokemon pokemonRecord evolutionChain =
         , div
             [ class "col-10" ]
             [ singlePokemonEvolutionChain evolutionChain ]
+        , div [ class "col-12" ]
+            [ h2 [] [ text "Moves" ] ]
+        , div [ class "col-12" ] [ singlePokemonMoves pokemonRecord.moves ]
         ]
 
 
-singlePokemonAllStats : PokemonStats -> Html Msg
-singlePokemonAllStats pokemonStats =
+singlePokemonMoves : List PokemonMoves -> Html Msg
+singlePokemonMoves pokemonMoves =
+    let
+        groupedMoves =
+            List.gatherEqualsBy .learnMethods pokemonMoves
+
+        groupedMovesOrderList =
+            [ "level-up", "egg", "machine", "tutor" ]
+
+        orderedGroupMoves =
+            groupedMovesOrderList
+                |> List.map
+                    (\key ->
+                        List.find (\( firstMove, _ ) -> firstMove.learnMethods == key) groupedMoves
+                    )
+
+        html =
+            List.map
+                (\maybeGroup ->
+                    case maybeGroup of
+                        Just group ->
+                            case group of
+                                ( firstMove, rest ) ->
+                                    List.append
+                                        [ div [] [ text firstMove.name ] ]
+                                        (List.map (\move -> div [] [ move.name ]) rest)
+
+                        Nothing ->
+                            []
+                )
+                orderedGroupMoves
+    in
+    div [] []
+
+
+singlePokemonEfficacies : Dict String Float -> Html Msg
+singlePokemonEfficacies efficacies =
+    let
+        efficaciesList =
+            Dict.toList efficacies
+
+        halfEfficaciesList =
+            List.length efficaciesList // 2
+
+        groups =
+            List.groupsOf halfEfficaciesList efficaciesList
+
+        html =
+            case groups of
+                [ firstRow, secondRow ] ->
+                    div [ class "row" ]
+                        [ singlePokemonEfficacyRow firstRow
+                        , singlePokemonEfficacyRow secondRow
+                        ]
+
+                _ ->
+                    div [] []
+    in
+    html
+
+
+singlePokemonEfficacyRow : List ( String, Float ) -> Html Msg
+singlePokemonEfficacyRow efficacyRow =
+    div [ class "col-12" ]
+        [ div
+            [ class "row no-gutters" ]
+            (efficacyRow
+                |> List.map
+                    (\( pokemonTypeName, multiplier ) ->
+                        div [ style "width" "11.11%" ]
+                            [ div [] [ pokemonTypeAbbreviated pokemonTypeName ]
+                            , efficacy multiplier
+                            ]
+                    )
+            )
+        ]
+
+
+efficacy : Float -> Html Msg
+efficacy multiplier =
+    let
+        isNeutral =
+            multiplier == 1
+
+        html =
+            if isNeutral then
+                div [] []
+
+            else
+                button
+                    [ class "pokemon-type"
+                    , style "width" "95%"
+                    , style "background-color" (getEfficacyColor multiplier)
+                    ]
+                    [ text (String.fromFloat multiplier) ]
+    in
+    html
+
+
+singlePokemonAllStats : PokemonStats -> PokemonStats -> Html Msg
+singlePokemonAllStats pokemonStats maxStats =
     table [ class "table table-sm" ]
         [ tbody []
-            [ singlePokemonSingleStat HP pokemonStats.hp 300
+            [ singlePokemonSingleStat "HP" pokemonStats.hp maxStats.hp
+            , singlePokemonSingleStat "Attack" pokemonStats.attack maxStats.attack
+            , singlePokemonSingleStat "Defense" pokemonStats.defense maxStats.defense
+            , singlePokemonSingleStat "Sp. Attack" pokemonStats.spAttack maxStats.spAttack
+            , singlePokemonSingleStat "Sp. Defense" pokemonStats.spDefense maxStats.spDefense
+            , singlePokemonSingleStat "Speed" pokemonStats.speed maxStats.speed
+            , singlePokemonSingleStat "Total" pokemonStats.total 0
             ]
         ]
 
 
-singlePokemonSingleStat : Stats -> Int -> Int -> Html Msg
+singlePokemonSingleStat : String -> Int -> Int -> Html Msg
 singlePokemonSingleStat statName statValue maxStatValue =
     let
-        ( minValue, maxValue, isBold ) =
-            case statName of
-                HP ->
-                    ( "10", "20", "" )
+        statsPercentageNumeric =
+            (toFloat statValue / toFloat maxStatValue) * 100
 
-                Total ->
-                    ( "Min", "Max", "font-weight-bold" )
+        statsPercentageString =
+            String.fromFloat statsPercentageNumeric ++ "%"
+
+        progressBarColor =
+            if statsPercentageNumeric < 25 then
+                "bg-danger"
+
+            else if statsPercentageNumeric < 50 then
+                "bg-warning"
+
+            else if statsPercentageNumeric < 75 then
+                "bg-success"
+
+            else
+                "bg-info"
+
+        bar =
+            div [ class "progress" ]
+                [ div [ class ("progressbar " ++ progressBarColor), style "width" statsPercentageString ]
+                    []
+                ]
+
+        { minValue, maxValue, isBold, progressBar } =
+            case statName of
+                "HP" ->
+                    let
+                        min =
+                            String.fromInt (calculateHpStat 0 0 statValue)
+
+                        max =
+                            String.fromInt (calculateHpStat 31 255 statValue)
+                    in
+                    { minValue = min, maxValue = max, isBold = "", progressBar = bar }
+
+                "Total" ->
+                    { minValue = "Min", maxValue = "Max", isBold = "font-weight-bold", progressBar = div [] [] }
 
                 _ ->
-                    ( "20", "20", "" )
+                    let
+                        min =
+                            String.fromInt (calculateOtherStat 0 0 0.9 statValue)
+
+                        max =
+                            String.fromInt (calculateOtherStat 31 255 1.1 statValue)
+                    in
+                    { minValue = min, maxValue = max, isBold = "", progressBar = bar }
     in
     tr []
-        [ td [ class "text-muted", style "width" "16.66%" ] [ text "HP" ]
-        , td [ class "text-muted", style "width" "8.33%" ] [ text (String.fromInt statValue) ]
+        [ td [ class ("text-muted " ++ isBold), style "width" "16.66%" ] [ text statName ]
+        , td [ class ("text-muted " ++ isBold), style "width" "8.33%" ] [ text (String.fromInt statValue) ]
         , td
             [ class "text-muted"
             , style "width" "58.33%"
             , style "vertical-align" "middle"
             ]
-            [ div [ class "progress" ]
-                [ div [ class "progressbar bg-danger", style "width" "50%" ]
-                    []
-                ]
+            [ progressBar
             ]
-        , td [ class "text-muted", style "width" "8.33%" ] [ text minValue ]
-        , td [ class "text-muted", style "width" "8.33%" ] [ text maxValue ]
+        , td [ class ("text-muted " ++ isBold), style "width" "8.33%" ] [ text minValue ]
+        , td [ class ("text-muted " ++ isBold), style "width" "8.33%" ] [ text maxValue ]
         ]
 
 
@@ -420,7 +612,7 @@ singlePokemonEvolutionChain evolutionChain =
                             [ div
                                 [ class "col-2" ]
                                 [ div []
-                                    [ pokemonImg Sprite firstFromChain.name ]
+                                    [ pokemonImgSprite firstFromChain.name firstFromChain.generation ]
                                 , div []
                                     [ text (capitalize firstFromChain.name) ]
                                 ]
@@ -437,7 +629,7 @@ singlePokemonEvolutionChain evolutionChain =
                                                 ]
                                             , div [ class "col-6" ]
                                                 [ div []
-                                                    [ pokemonImg Sprite pokemon.name ]
+                                                    [ pokemonImgSprite pokemon.name pokemon.generation ]
                                                 , div []
                                                     [ text (capitalize pokemon.name) ]
                                                 ]
@@ -470,7 +662,15 @@ singlePokemonData pokemonRecord =
                             ]
                         , tr []
                             [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Type:" ]
-                            , td [] (List.map (\elem -> pokemonType elem False True) pokemonRecord.types)
+                            , td []
+                                [ div [ class "row" ]
+                                    (pokemonRecord.types
+                                        |> List.map
+                                            (\elem ->
+                                                div [ class "col-4 no-gutters" ] [ pokemonTypeFull elem ]
+                                            )
+                                    )
+                                ]
                             ]
                         , tr []
                             [ td [ class "w-25 text-muted" ] [ text "Dex No.:" ]
@@ -479,7 +679,15 @@ singlePokemonData pokemonRecord =
                         , tr []
                             [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Abilities.:" ]
                             , td []
-                                (List.map pokemonAbility pokemonRecord.abilities)
+                                (pokemonRecord.abilities
+                                    |> List.map
+                                        (\elem ->
+                                            div [ class "row" ]
+                                                [ div [ class "col" ]
+                                                    [ pokemonAbility elem ]
+                                                ]
+                                        )
+                                )
                             ]
                         , tr []
                             [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Height:" ]
@@ -548,15 +756,11 @@ pokemonAbility ability =
             else
                 text abilityText
     in
-    div [ class "row" ]
-        [ div [ class "col" ]
-            [ div [ class "tooltip-custom" ]
-                [ abilityTextHtml
-                , span
-                    [ class "tooltiptext" ]
-                    [ text abilityEffect ]
-                ]
-            ]
+    div [ class "tooltip-custom" ]
+        [ abilityTextHtml
+        , span
+            [ class "tooltiptext" ]
+            [ text ability.shortEffect ]
         ]
 
 

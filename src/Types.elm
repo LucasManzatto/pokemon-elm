@@ -67,6 +67,16 @@ type alias FullPokemon =
     }
 
 
+type Efficacies
+    = Efficacies (Dict String Float)
+
+
+efficaciesDecoder : Decoder Efficacies
+efficaciesDecoder =
+    Decode.succeed Efficacies
+        |> required "efficacies" (dict float)
+
+
 fullPokemonDecoder : Decoder FullPokemon
 fullPokemonDecoder =
     Decode.succeed FullPokemon
@@ -183,10 +193,10 @@ type alias RGBA =
 
 
 type Stats
-    = HP
-    | Attack
-    | Defense
-    | SpAttack
-    | SpDefense
-    | Speed
-    | Total
+    = HP String
+    | Attack String
+    | Defense String
+    | SpAttack String
+    | SpDefense String
+    | Speed String
+    | Total String
