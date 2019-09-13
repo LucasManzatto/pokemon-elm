@@ -38,15 +38,15 @@ maxStatsInit =
 
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
-init _ _ navKey =
+init _ url navKey =
     ( { navKey = navKey
-      , pokemons = Loading
-      , currentPage = Pokedex
+      , pokemons = NotAsked
+      , currentPage = url |> Url.toString |> toRoute
       , selectedPokemon = NotAsked
       , selectedPokemonEvolutionChain = []
       , maxStats = maxStatsInit
       }
-    , Cmd.batch [ getPokedex, getMaxStats ]
+    , Cmd.batch [ getMaxStats, Nav.pushUrl navKey <| Url.toString url ]
     )
 
 
@@ -107,7 +107,16 @@ update msg model =
         ChangeUrl url ->
             case url |> Url.toString |> toRoute of
                 Pokedex ->
-                    ( { model | currentPage = Pokedex }, getPokedex )
+                    let
+                        loadPokedex =
+                            case model.pokemons of
+                                NotAsked ->
+                                    getPokedex
+
+                                _ ->
+                                    Cmd.none
+                    in
+                    ( { model | currentPage = Pokedex }, loadPokedex )
 
                 SinglePokemon pokemonId ->
                     ( { model | currentPage = SinglePokemon pokemonId, selectedPokemon = Loading }
@@ -189,7 +198,7 @@ view model =
                             singlePokemon poke model.selectedPokemonEvolutionChain model.maxStats
 
                         Failure _ ->
-                            h2 [] [ text "HTTP Error" ]
+                            h2 [] [ text "Pokémon not found." ]
 
                 NotFound ->
                     div [] [ text "Page not Found." ]
@@ -432,26 +441,138 @@ singlePokemonMoves pokemonMoves =
             groupedMovesOrderList
                 |> List.map
                     (\key ->
-                        List.find (\( firstMove, _ ) -> firstMove.learnMethods == key) groupedMoves
+                        case List.find (\( firstMove, _ ) -> firstMove.learnMethods == key) groupedMoves of
+                            Just ( firstMove, rest ) ->
+                                div []
+                                    [ h2 []
+                                        [ text
+                                            (case firstMove.learnMethods of
+                                                "level-up" ->
+                                                    "Leveling"
+
+                                                "machine" ->
+                                                    "TM"
+
+                                                "egg" ->
+                                                    "Egg"
+
+                                                "tutor" ->
+                                                    "Tutor"
+
+                                                _ ->
+                                                    "Undefined Group"
+                                            )
+                                        ]
+                                    , table [ class "table table-hover table-sm text-center" ]
+                                        [ thead []
+                                            [ tr []
+                                                [ if firstMove.learnMethods == "level-up" then
+                                                    th [ scope "col", class "text-right" ]
+                                                        [ text "Level" ]
+
+                                                  else if firstMove.learnMethods == "machine" then
+                                                    th [ scope "col", class "text-right" ]
+                                                        [ text "TM" ]
+
+                                                  else
+                                                    text ""
+                                                , th [ scope "col", class "text-left" ]
+                                                    [ text "Move" ]
+                                                , th [ scope "col" ]
+                                                    [ text "Type" ]
+                                                , th [ scope "col" ]
+                                                    [ text "Category" ]
+                                                , th [ scope "col" ]
+                                                    [ text "Power" ]
+                                                , th [ scope "col" ]
+                                                    [ text "Accuracy" ]
+                                                ]
+                                            ]
+                                        , tbody [ class "font-weight-normal" ]
+                                            (List.map
+                                                (\moveRow ->
+                                                    tr []
+                                                        [ if firstMove.learnMethods == "level-up" then
+                                                            case moveRow.level of
+                                                                Just level ->
+                                                                    th [ class "text-right" ] [ text (String.fromInt level) ]
+
+                                                                Nothing ->
+                                                                    th [] [ text "-" ]
+
+                                                          else if firstMove.learnMethods == "machine" then
+                                                            th [ class "text-right" ] [ text (String.fromInt moveRow.tmMachineNumber) ]
+
+                                                          else
+                                                            text ""
+                                                        , th [ class "text-left" ]
+                                                            [ text
+                                                                (moveRow.name
+                                                                    |> String.replace "-" " "
+                                                                    |> String.split " "
+                                                                    |> List.map capitalize
+                                                                    |> String.join " "
+                                                                )
+                                                            ]
+                                                        , th []
+                                                            [ case moveRow.moveType of
+                                                                Just moveType ->
+                                                                    pokemonTypeFull moveType
+
+                                                                Nothing ->
+                                                                    text "-"
+                                                            ]
+                                                        , th []
+                                                            [ img
+                                                                [ src ("https://img.pokemondb.net/images/icons/" ++ moveRow.damageClass ++ ".png")
+                                                                , style "margin" "0"
+                                                                , style "padding" "0"
+                                                                ]
+                                                                []
+                                                            ]
+                                                        , th []
+                                                            [ case moveRow.power of
+                                                                Just power ->
+                                                                    text (String.fromInt power)
+
+                                                                Nothing ->
+                                                                    text "-"
+                                                            ]
+                                                        , th []
+                                                            [ case moveRow.accuracy of
+                                                                Just accuracy ->
+                                                                    text (String.fromInt accuracy)
+
+                                                                Nothing ->
+                                                                    text "-"
+                                                            ]
+                                                        ]
+                                                )
+                                                (firstMove :: rest)
+                                            )
+                                        ]
+                                    ]
+
+                            Nothing ->
+                                div [] []
                     )
+                |> List.groupsOf 2
 
         html =
-            List.map
-                (\maybeGroup ->
-                    case maybeGroup of
-                        Just group ->
-                            case group of
-                                ( firstMove, rest ) ->
-                                    List.append
-                                        [ div [] [ text firstMove.name ] ]
-                                        (List.map (\move -> div [] [ move.name ]) rest)
-
-                        Nothing ->
-                            []
+            div [ class "row" ]
+                (List.map
+                    (\col ->
+                        div [ class "col-6" ]
+                            [ div [ class "row" ]
+                                [ div [ class "col-12" ]
+                                    col
+                                ]
+                            ]
+                    )
+                    orderedGroupMoves
                 )
-                orderedGroupMoves
     in
-    div [] []
+    html
 
 
 singlePokemonEfficacies : Dict String Float -> Html Msg
@@ -512,6 +633,7 @@ efficacy multiplier =
                     [ class "pokemon-type"
                     , style "width" "95%"
                     , style "background-color" (getEfficacyColor multiplier)
+                    , disabled True
                     ]
                     [ text (String.fromFloat multiplier) ]
     in
