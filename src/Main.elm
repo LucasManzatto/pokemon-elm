@@ -54,10 +54,15 @@ init _ url navKey =
 --------------------- API CALLS
 
 
+apiUrl : String
+apiUrl =
+    "https://localhost:5001/api"
+
+
 getPokedex : Cmd Msg
 getPokedex =
     Http.get
-        { url = "http://localhost:58803/api/Pokemons"
+        { url = apiUrl ++ "/Pokemons"
         , expect = Http.expectJson (fromResult >> PokemonsReceived) (Decode.list pokemonDecoder)
         }
 
@@ -65,7 +70,7 @@ getPokedex =
 getPokemon : Int -> Cmd Msg
 getPokemon pokemonId =
     Http.get
-        { url = "http://localhost:58803/api/Pokemons/" ++ String.fromInt pokemonId
+        { url = apiUrl ++ "/Pokemons/" ++ String.fromInt pokemonId
         , expect = Http.expectJson (fromResult >> FullPokemonReceived) fullPokemonDecoder
         }
 
@@ -73,7 +78,7 @@ getPokemon pokemonId =
 getPokemonEvolutionChain : Int -> Cmd Msg
 getPokemonEvolutionChain pokemonId =
     Http.get
-        { url = "http://localhost:58803/api/Pokemons/" ++ String.fromInt pokemonId ++ "/evolutionChain"
+        { url = apiUrl ++ "/Pokemons/" ++ String.fromInt pokemonId ++ "/evolutionChain"
         , expect = Http.expectJson (fromResult >> PokemonEvolutionChainReceived) (Decode.list pokemonEvolutionChainDecoder)
         }
 
@@ -81,7 +86,7 @@ getPokemonEvolutionChain pokemonId =
 getMaxStats : Cmd Msg
 getMaxStats =
     Http.get
-        { url = "http://localhost:58803/api/Pokemons/maxStats"
+        { url = apiUrl ++ "/Pokemons/maxStats"
         , expect =
             Http.expectJson (fromResult >> MaxStatsReceived) pokemonStatsDecoder
         }
@@ -192,7 +197,7 @@ view model =
                             text ""
 
                         Loading ->
-                            h3 [] [ text "Loading..." ]
+                            h3 [] [ text "" ]
 
                         Success poke ->
                             singlePokemon poke model.selectedPokemonEvolutionChain model.maxStats
@@ -233,13 +238,7 @@ pokedexGeneration ( firstPokemonFromGen, genList ) =
                 [ first, last ] ->
                     capitalize first ++ " " ++ String.toUpper last
 
-                [] ->
-                    ""
-
-                [ _ ] ->
-                    ""
-
-                _ :: _ :: _ ->
+                _ ->
                     ""
     in
     div [ class "col-12" ]
@@ -250,7 +249,8 @@ pokedexGeneration ( firstPokemonFromGen, genList ) =
             , style "background" "white"
             , style "z-index" "10"
             ]
-            [ div [ class "col" ] [ text formatedGen ]
+            [ div [ class "col" ]
+                [ text formatedGen ]
             ]
         , div [ class "row" ]
             (List.map pokedexPokemon (firstPokemonFromGen :: genList))
@@ -260,25 +260,25 @@ pokedexGeneration ( firstPokemonFromGen, genList ) =
 pokedexPokemon : Pokemon -> Html Msg
 pokedexPokemon pokemonRecord =
     let
-        firstType =
-            case List.head pokemonRecord.types of
-                Just elem ->
-                    elem
-
-                Nothing ->
-                    ""
-
         formatedPokemonNumber =
             "#" ++ String.padLeft 3 '0' (String.fromInt pokemonRecord.id)
 
         types =
-            if List.length pokemonRecord.types == 2 then
-                div [ class "row justify-content-center no-gutters" ]
-                    (List.map (\elem -> pokemonTypeLink (firstType == elem) elem) pokemonRecord.types)
+            case pokemonRecord.types of
+                [ firstType, secondType ] ->
+                    div [ class "row justify-content-center no-gutters" ]
+                        [ pokemonTypeLink firstType
+                        , text " - "
+                        , pokemonTypeLink secondType
+                        ]
 
-            else
-                div [ class "row justify-content-center no-gutters" ]
-                    [ pokemonTypeLink False firstType ]
+                [ justFirst ] ->
+                    div [ class "row justify-content-center no-gutters" ]
+                        [ div [ class "col-4" ] [ pokemonTypeLink justFirst ]
+                        ]
+
+                _ ->
+                    text ""
     in
     div [ class "text-center", style "width" "12.5%" ]
         [ div []
@@ -287,7 +287,13 @@ pokedexPokemon pokemonRecord =
             ]
         , div [] [ text formatedPokemonNumber ]
         , div []
-            [ a [ style "padding" "0", class "btn btn-link font-weight-bold", href ("pokemon/" ++ String.fromInt pokemonRecord.id) ] [ text (capitalize pokemonRecord.name) ] ]
+            [ a
+                [ style "padding" "0"
+                , class "btn btn-link font-weight-bold"
+                , href ("pokemon/" ++ String.fromInt pokemonRecord.id)
+                ]
+                [ text (capitalize pokemonRecord.name) ]
+            ]
         , div []
             [ types ]
         ]
@@ -333,8 +339,8 @@ pokemonImgSprite pokemonName generation =
     pokemonImg Sprite pokemonName generation
 
 
-pokemonType : Bool -> Bool -> Bool -> String -> Html Msg
-pokemonType isAbbreviated isButtonStyle renderDash name =
+pokemonType : Bool -> Bool -> String -> Html Msg
+pokemonType isAbbreviated isButtonStyle name =
     let
         formatedName =
             (if isAbbreviated then
@@ -344,43 +350,39 @@ pokemonType isAbbreviated isButtonStyle renderDash name =
                 name
             )
                 |> capitalize
-
-        dash =
-            if renderDash then
-                " - "
-
-            else
-                ""
     in
     if isButtonStyle then
         button
             [ class "pokemon-type"
             , style "background-color" (getColorFromType name)
             , style "width" "95%"
+            , style "max-width" "92px"
+            , style "margin" "0"
             ]
             [ text formatedName ]
 
     else
-        button
-            [ class "btn btn-link"
+        a
+            [ class "ml-1 mr-1"
             , style "color" (getColorFromType name)
+            , style "padding" "0"
             ]
             [ text formatedName ]
 
 
 pokemonTypeFull : String -> Html Msg
 pokemonTypeFull =
-    pokemonType False True False
+    pokemonType False True
 
 
-pokemonTypeLink : Bool -> String -> Html Msg
+pokemonTypeLink : String -> Html Msg
 pokemonTypeLink =
     pokemonType False False
 
 
 pokemonTypeAbbreviated : String -> Html Msg
 pokemonTypeAbbreviated =
-    pokemonType True True False
+    pokemonType True True
 
 
 singlePokemon : FullPokemon -> List PokemonEvolutionChain -> PokemonStats -> Html Msg
@@ -396,7 +398,7 @@ singlePokemon pokemonRecord evolutionChain maxStats =
         , div
             [ class "col-12" ]
             [ div [ class "row" ]
-                [ div [ class "col-7" ]
+                [ div [ class "col-8" ]
                     [ div [ class "row" ]
                         [ div [ class "col-12" ]
                             [ h2 [] [ text "Stats" ] ]
@@ -405,7 +407,7 @@ singlePokemon pokemonRecord evolutionChain maxStats =
                             ]
                         ]
                     ]
-                , div [ class "col-5" ]
+                , div [ class "col-4" ]
                     [ div [ class "row" ]
                         [ div [ class "col-12" ]
                             [ h2 [] [ text "Type Defenses" ] ]
@@ -440,42 +442,44 @@ singlePokemonMoves pokemonMoves =
         orderedGroupMoves =
             groupedMovesOrderList
                 |> List.map
-                    (\key ->
-                        case List.find (\( firstMove, _ ) -> firstMove.learnMethods == key) groupedMoves of
+                    (\learnMethod ->
+                        case List.find (\( firstMove, _ ) -> firstMove.learnMethods == learnMethod) groupedMoves of
                             Just ( firstMove, rest ) ->
+                                let
+                                    ( headerText, firstHeaderColumn, sortedMovesRow ) =
+                                        case learnMethod of
+                                            "level-up" ->
+                                                ( "Leveling"
+                                                , th [ scope "col", class "text-right" ]
+                                                    [ text "Level" ]
+                                                , List.sortBy .name (firstMove :: rest)
+                                                )
+
+                                            "machine" ->
+                                                ( "TM"
+                                                , th [ scope "col", class "text-right" ]
+                                                    [ text "TM" ]
+                                                , firstMove :: rest
+                                                )
+
+                                            "egg" ->
+                                                ( "Egg", text "", firstMove :: rest )
+
+                                            "tutor" ->
+                                                ( "Tutor", text "", firstMove :: rest )
+
+                                            _ ->
+                                                ( "Undefined Group", text "", firstMove :: rest )
+                                in
                                 div []
                                     [ h2 []
                                         [ text
-                                            (case firstMove.learnMethods of
-                                                "level-up" ->
-                                                    "Leveling"
-
-                                                "machine" ->
-                                                    "TM"
-
-                                                "egg" ->
-                                                    "Egg"
-
-                                                "tutor" ->
-                                                    "Tutor"
-
-                                                _ ->
-                                                    "Undefined Group"
-                                            )
+                                            headerText
                                         ]
                                     , table [ class "table table-hover table-sm text-center" ]
                                         [ thead []
                                             [ tr []
-                                                [ if firstMove.learnMethods == "level-up" then
-                                                    th [ scope "col", class "text-right" ]
-                                                        [ text "Level" ]
-
-                                                  else if firstMove.learnMethods == "machine" then
-                                                    th [ scope "col", class "text-right" ]
-                                                        [ text "TM" ]
-
-                                                  else
-                                                    text ""
+                                                [ firstHeaderColumn
                                                 , th [ scope "col", class "text-left" ]
                                                     [ text "Move" ]
                                                 , th [ scope "col" ]
@@ -491,30 +495,45 @@ singlePokemonMoves pokemonMoves =
                                         , tbody [ class "font-weight-normal" ]
                                             (List.map
                                                 (\moveRow ->
+                                                    let
+                                                        firstRowColumn =
+                                                            if learnMethod == "level-up" then
+                                                                case moveRow.level of
+                                                                    Just level ->
+                                                                        th
+                                                                            [ class "text-right"
+                                                                            , style "vertical-align" "middle"
+                                                                            ]
+                                                                            [ text (String.fromInt level) ]
+
+                                                                    Nothing ->
+                                                                        th [] [ text "-" ]
+
+                                                            else if learnMethod == "machine" then
+                                                                case moveRow.tmMachineNumber of
+                                                                    Just tmMachineNumber ->
+                                                                        th [ class "text-right" ] [ text (String.fromInt tmMachineNumber) ]
+
+                                                                    Nothing ->
+                                                                        th [] [ text "-" ]
+
+                                                            else
+                                                                text ""
+
+                                                        formattedName =
+                                                            moveRow.name
+                                                                |> String.replace "-" " "
+                                                                |> String.split " "
+                                                                |> List.map capitalize
+                                                                |> String.join " "
+                                                    in
                                                     tr []
-                                                        [ if firstMove.learnMethods == "level-up" then
-                                                            case moveRow.level of
-                                                                Just level ->
-                                                                    th [ class "text-right" ] [ text (String.fromInt level) ]
-
-                                                                Nothing ->
-                                                                    th [] [ text "-" ]
-
-                                                          else if firstMove.learnMethods == "machine" then
-                                                            th [ class "text-right" ] [ text (String.fromInt moveRow.tmMachineNumber) ]
-
-                                                          else
-                                                            text ""
-                                                        , th [ class "text-left" ]
+                                                        [ firstRowColumn
+                                                        , td [ class "text-left" ]
                                                             [ text
-                                                                (moveRow.name
-                                                                    |> String.replace "-" " "
-                                                                    |> String.split " "
-                                                                    |> List.map capitalize
-                                                                    |> String.join " "
-                                                                )
+                                                                formattedName
                                                             ]
-                                                        , th []
+                                                        , td []
                                                             [ case moveRow.moveType of
                                                                 Just moveType ->
                                                                     pokemonTypeFull moveType
@@ -522,7 +541,7 @@ singlePokemonMoves pokemonMoves =
                                                                 Nothing ->
                                                                     text "-"
                                                             ]
-                                                        , th []
+                                                        , td []
                                                             [ img
                                                                 [ src ("https://img.pokemondb.net/images/icons/" ++ moveRow.damageClass ++ ".png")
                                                                 , style "margin" "0"
@@ -530,7 +549,7 @@ singlePokemonMoves pokemonMoves =
                                                                 ]
                                                                 []
                                                             ]
-                                                        , th []
+                                                        , td []
                                                             [ case moveRow.power of
                                                                 Just power ->
                                                                     text (String.fromInt power)
@@ -538,7 +557,7 @@ singlePokemonMoves pokemonMoves =
                                                                 Nothing ->
                                                                     text "-"
                                                             ]
-                                                        , th []
+                                                        , td []
                                                             [ case moveRow.accuracy of
                                                                 Just accuracy ->
                                                                     text (String.fromInt accuracy)
@@ -548,7 +567,7 @@ singlePokemonMoves pokemonMoves =
                                                             ]
                                                         ]
                                                 )
-                                                (firstMove :: rest)
+                                                sortedMovesRow
                                             )
                                         ]
                                     ]
@@ -610,7 +629,7 @@ singlePokemonEfficacyRow efficacyRow =
                 |> List.map
                     (\( pokemonTypeName, multiplier ) ->
                         div [ style "width" "11.11%" ]
-                            [ div [] [ pokemonTypeAbbreviated pokemonTypeName ]
+                            [ div [ class "mb-1" ] [ pokemonTypeAbbreviated pokemonTypeName ]
                             , efficacy multiplier
                             ]
                     )

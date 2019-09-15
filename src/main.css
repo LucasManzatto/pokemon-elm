@@ -24,6 +24,10 @@ img {
   margin: 20px 0;
   max-width: 200px;
 }
+td {
+  vertical-align: middle !important
+}
+
 
 .pokemon-type {
   color: white;

@@ -118,7 +118,7 @@ pokemonAbilitiesDecoder =
 
 
 type alias PokemonMoves =
-    { level : Maybe Int
+    { level : Int
     , order : Maybe Int
     , damageClass : String
     , name : String
@@ -126,14 +126,16 @@ type alias PokemonMoves =
     , accuracy : Maybe Int
     , moveType : Maybe String
     , learnMethods : String
-    , tmMachineNumber : Int
+    , tmMachineNumber : Maybe Int
     }
 
+
+type LearnMethods = LevelUp String | Egg String | TMMachine String | Tutor String
 
 pokemonMovesDecoder : Decoder PokemonMoves
 pokemonMovesDecoder =
     Decode.succeed PokemonMoves
-        |> required "level" (nullable Decode.int)
+        |> required "level" Decode.int
         |> required "order" (nullable Decode.int)
         |> optional "damageClass" string "Invalid Damage Class."
         |> optional "name" string "Invalid Name."
@@ -141,7 +143,7 @@ pokemonMovesDecoder =
         |> required "accuracy" (nullable Decode.int)
         |> required "type" (nullable string)
         |> optional "learnMethods" string "Invalid Learn Methods."
-        |> required "tmMachineNumber" Decode.int
+        |> required "tmMachineNumber" (nullable Decode.int)
 
 
 type alias PokemonStats =
