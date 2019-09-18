@@ -5,7 +5,6 @@ import Browser exposing (UrlRequest(..))
 import Dict exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (href)
-import Pages.Pokedex exposing (..)
 import Types exposing (..)
 import Url
 import Url.Parser as UrlParser exposing ((</>), Parser, int, map, oneOf, parse, s, top)

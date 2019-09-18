@@ -5,6 +5,7 @@ import Debug exposing (log)
 import Dict exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
+import Route exposing (..)
 import Types exposing (..)
 import Utils exposing (..)
 
@@ -88,7 +89,7 @@ pokemonCard pokemonRecord =
         [ a
             [ style "padding" "0"
             , class "btn btn-link font-weight-bold"
-            , href ("pokemon/" ++ String.fromInt pokemonRecord.id)
+            , Route.toHref (Route.SinglePokemon pokemonRecord.id)
             ]
             [ text (capitalize pokemonRecord.name) ]
         ]
