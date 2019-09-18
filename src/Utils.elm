@@ -79,15 +79,6 @@ capitalize str =
             String.cons newFirstLetter rest
 
 
-route : Parser (Route -> a) a
-route =
-    oneOf
-        [ map Pokedex top
-        , map Pokedex (s "pokedex")
-        , map SinglePokemon (s "pokemon" </> UrlParser.int)
-        ]
-
-
 regexReplace : String -> (Regex.Match -> String) -> String -> String
 regexReplace userRegex replacer string =
     case Regex.fromString userRegex of
@@ -106,16 +97,6 @@ fromResult result =
 
         Ok x ->
             Success x
-
-
-toRoute : String -> Route
-toRoute string =
-    case Url.fromString string of
-        Nothing ->
-            NotFound
-
-        Just url ->
-            Maybe.withDefault NotFound (parse route url)
 
 
 calculateHpStat : Int -> Int -> Int -> Int

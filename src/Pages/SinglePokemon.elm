@@ -1,48 +1,171 @@
-module Pages.SinglePokemon exposing (singlePokemon)
+module Pages.SinglePokemon exposing (..)
 
-import Browser exposing (UrlRequest(..))
+import Api as Api exposing (..)
+import Browser exposing (Document, UrlRequest(..))
 import Debug exposing (log)
 import Dict exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
+import Http exposing (get)
 import Ionicon
+import Json.Decode as Decode exposing (list)
 import List.Extra as List
+import Pages.PokemonMoves as PokemonMoves exposing (..)
+import Pages.Shared as Shared exposing (..)
+import Platform.Cmd exposing (Cmd)
+import Regex exposing (replace)
 import Types exposing (..)
+import Url exposing (Url)
 import Utils exposing (..)
 
 
+type alias Model =
+    { pokemon : WebData FullPokemon
+    , maxStats : WebData PokemonStats
+    , evolutionChain : WebData (List PokemonEvolutionChain)
+    }
+
+
+initModel : Model
+initModel =
+    { pokemon = NotAsked
+    , maxStats = NotAsked
+    , evolutionChain = NotAsked
+    }
+
+
+getPokemon : Int -> Cmd Msg
+getPokemon pokemonId =
+    Http.get
+        { url = apiUrl ++ "/Pokemons/" ++ String.fromInt pokemonId
+        , expect = Http.expectJson (fromResult >> FullPokemonReceived) fullPokemonDecoder
+        }
+
+
+getMaxStats : Cmd Msg
+getMaxStats =
+    Http.get
+        { url = apiUrl ++ "/Pokemons/maxStats"
+        , expect =
+            Http.expectJson (fromResult >> MaxStatsReceived) pokemonStatsDecoder
+        }
+
+
+getPokemonEvolutionChain : Int -> Cmd Msg
+getPokemonEvolutionChain pokemonId =
+    Http.get
+        { url = apiUrl ++ "/Pokemons/" ++ String.fromInt pokemonId ++ "/evolutionChain"
+        , expect = Http.expectJson (fromResult >> PokemonEvolutionChainReceived) (Decode.list pokemonEvolutionChainDecoder)
+        }
+
+
+init : () -> Int -> ( Model, Cmd Msg )
+init _ pokemonId =
+    ( initModel
+    , Cmd.batch [ getPokemon pokemonId, getMaxStats, getPokemonEvolutionChain pokemonId ]
+    )
+
+
+
+------------------------------ UPDATE -------------------------
+
+
 type Msg
-    = Msg
+    = FullPokemonReceived (WebData FullPokemon)
+    | MaxStatsReceived (WebData PokemonStats)
+    | PokemonEvolutionChainReceived (WebData (List PokemonEvolutionChain))
 
 
-singlePokemon : FullPokemon -> List PokemonEvolutionChain -> PokemonStats -> Html Msg
-singlePokemon pokemonRecord evolutionChain maxStats =
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        FullPokemonReceived response ->
+            ( { model | pokemon = response }, Cmd.none )
+
+        MaxStatsReceived response ->
+            ( { model | maxStats = response }, Cmd.none )
+
+        PokemonEvolutionChainReceived response ->
+            ( { model | evolutionChain = response }, Cmd.none )
+
+
+
+--------------------------- VIEW --------------------
+
+
+view : Model -> Html msg
+view model =
+    case model.pokemon of
+        NotAsked ->
+            text ""
+
+        Loading ->
+            text "Loading"
+
+        Success pokemon ->
+            viewPokemon pokemon model.maxStats model.evolutionChain
+
+        Failure _ ->
+            text "Error"
+
+
+viewPokemon : FullPokemon -> WebData PokemonStats -> WebData (List PokemonEvolutionChain) -> Html msg
+viewPokemon pokemon maxStats evolutionChain =
+    let
+        viewMaxStats =
+            case maxStats of
+                NotAsked ->
+                    text ""
+
+                Loading ->
+                    text "Loading..."
+
+                Success maxStatsRes ->
+                    allStats pokemon.stats maxStatsRes
+
+                Failure _ ->
+                    text "Error getting max stats."
+
+        viewEvoChain =
+            case evolutionChain of
+                NotAsked ->
+                    text ""
+
+                Loading ->
+                    text "Loading..."
+
+                Success evolutionChainRes ->
+                    viewEvolutionChain evolutionChainRes
+
+                Failure _ ->
+                    text "Error getting evolution chain."
+    in
     div
         [ class "row justify-content-center" ]
         [ div [ class "col-4 text-center" ]
-            [ pokemonImg Full pokemonRecord.name
+            [ pokemonImgFull pokemon.name
             ]
         , div
             [ class "col-8" ]
-            [ singlePokemonData pokemonRecord ]
+            [ singlePokemonData pokemon ]
         , div
             [ class "col-12" ]
             [ div [ class "row" ]
-                [ div [ class "col-7" ]
+                [ div [ class "col-8" ]
                     [ div [ class "row" ]
                         [ div [ class "col-12" ]
                             [ h2 [] [ text "Stats" ] ]
                         , div [ class "col-12" ]
-                            [ singlePokemonAllStats pokemonRecord.stats maxStats
+                            [ viewMaxStats
                             ]
                         ]
                     ]
-                , div [ class "col-5" ]
+                , div [ class "col-4" ]
                     [ div [ class "row" ]
                         [ div [ class "col-12" ]
                             [ h2 [] [ text "Type Defenses" ] ]
                         , div [ class "col-12" ]
-                            [ singlePokemonEfficacies pokemonRecord.efficacies
+                            [ viewEfficacies pokemon.efficacies
                             ]
                         ]
                     ]
@@ -53,12 +176,30 @@ singlePokemon pokemonRecord evolutionChain maxStats =
             ]
         , div
             [ class "col-10" ]
-            [ singlePokemonEvolutionChain evolutionChain ]
+            [ viewEvoChain ]
+        , div [ class "col-12" ]
+            [ h2 [] [ text "Moves" ] ]
+        , div [ class "col-12" ] [ PokemonMoves.view pokemon.moves ]
         ]
 
 
-singlePokemonEfficacies : Dict String Float -> Html Msg
-singlePokemonEfficacies efficacies =
+allStats : PokemonStats -> PokemonStats -> Html msg
+allStats pokemonStats maxStats =
+    table [ class "table table-sm" ]
+        [ tbody []
+            [ singleStat "HP" pokemonStats.hp maxStats.hp
+            , singleStat "Attack" pokemonStats.attack maxStats.attack
+            , singleStat "Defense" pokemonStats.defense maxStats.defense
+            , singleStat "Sp. Attack" pokemonStats.spAttack maxStats.spAttack
+            , singleStat "Sp. Defense" pokemonStats.spDefense maxStats.spDefense
+            , singleStat "Speed" pokemonStats.speed maxStats.speed
+            , singleStat "Total" pokemonStats.total 0
+            ]
+        ]
+
+
+viewEfficacies : Dict String Float -> Html msg
+viewEfficacies efficacies =
     let
         efficaciesList =
             Dict.toList efficacies
@@ -69,39 +210,12 @@ singlePokemonEfficacies efficacies =
         groups =
             List.groupsOf halfEfficaciesList efficaciesList
 
-        test =
-            log "groups: " (List.head groups)
-
         html =
             case groups of
                 [ firstRow, secondRow ] ->
                     div [ class "row" ]
-                        [ div [ class "col-12" ]
-                            [ div
-                                [ class "row no-gutters" ]
-                                (firstRow
-                                    |> List.map
-                                        (\( efficacy, value ) ->
-                                            div [ style "width" "11.11%" ]
-                                                [ div [] [ text efficacy ]
-                                                , div [] [ text (String.fromFloat value) ]
-                                                ]
-                                        )
-                                )
-                            ]
-                        , div [ class "col-12" ]
-                            [ div
-                                [ class "row no-gutters" ]
-                                (secondRow
-                                    |> List.map
-                                        (\( efficacy, value ) ->
-                                            div [ style "width" "11.11%" ]
-                                                [ div [] [ text efficacy ]
-                                                , div [] [ text (String.fromFloat value) ]
-                                                ]
-                                        )
-                                )
-                            ]
+                        [ efficacyRow firstRow
+                        , efficacyRow secondRow
                         ]
 
                 _ ->
@@ -110,23 +224,47 @@ singlePokemonEfficacies efficacies =
     html
 
 
-singlePokemonAllStats : PokemonStats -> PokemonStats -> Html Msg
-singlePokemonAllStats pokemonStats maxStats =
-    table [ class "table table-sm" ]
-        [ tbody []
-            [ singlePokemonSingleStat "HP" pokemonStats.hp maxStats.hp
-            , singlePokemonSingleStat "Attack" pokemonStats.attack maxStats.attack
-            , singlePokemonSingleStat "Defense" pokemonStats.defense maxStats.defense
-            , singlePokemonSingleStat "Sp. Attack" pokemonStats.spAttack maxStats.spAttack
-            , singlePokemonSingleStat "Sp. Defense" pokemonStats.spDefense maxStats.spDefense
-            , singlePokemonSingleStat "Speed" pokemonStats.speed maxStats.speed
-            , singlePokemonSingleStat "Total" pokemonStats.total 0
-            ]
+efficacyRow : List ( String, Float ) -> Html msg
+efficacyRow row =
+    div [ class "col-12" ]
+        [ div
+            [ class "row no-gutters" ]
+            (row
+                |> List.map
+                    (\( pokemonTypeName, multiplier ) ->
+                        div [ style "width" "11.11%" ]
+                            [ div [ class "mb-1" ] [ pokemonTypeAbbreviated pokemonTypeName ]
+                            , efficacy multiplier
+                            ]
+                    )
+            )
         ]
 
 
-singlePokemonSingleStat : String -> Int -> Int -> Html Msg
-singlePokemonSingleStat statName statValue maxStatValue =
+efficacy : Float -> Html msg
+efficacy multiplier =
+    let
+        isNeutral =
+            multiplier == 1
+
+        html =
+            if isNeutral then
+                div [] []
+
+            else
+                button
+                    [ class "pokemon-type"
+                    , style "width" "95%"
+                    , style "background-color" (getEfficacyColor multiplier)
+                    , disabled True
+                    ]
+                    [ text (String.fromFloat multiplier) ]
+    in
+    html
+
+
+singleStat : String -> Int -> Int -> Html msg
+singleStat statName statValue maxStatValue =
     let
         statsPercentageNumeric =
             (toFloat statValue / toFloat maxStatValue) * 100
@@ -193,20 +331,18 @@ singlePokemonSingleStat statName statValue maxStatValue =
         ]
 
 
-singlePokemonEvolutionChain : List PokemonEvolutionChain -> Html Msg
-singlePokemonEvolutionChain evolutionChain =
+viewEvolutionChain : List PokemonEvolutionChain -> Html msg
+viewEvolutionChain evoChain =
     let
         evolutionChainHtml =
-            case List.uncons evolutionChain of
-                Just ( firstFromChain, chainExceptFirst ) ->
+            case List.uncons evoChain of
+                Just ( firstPokemonFromChain, chainExceptFirst ) ->
                     div [ class "row text-center justify-content-center" ]
                         (List.append
                             [ div
                                 [ class "col-2" ]
                                 [ div []
-                                    [ pokemonImg Sprite firstFromChain.name ]
-                                , div []
-                                    [ text (capitalize firstFromChain.name) ]
+                                    (pokemonCard { id = firstPokemonFromChain.id, name = firstPokemonFromChain.name, generation = firstPokemonFromChain.generation, types = [] })
                                 ]
                             ]
                             (List.map
@@ -221,9 +357,7 @@ singlePokemonEvolutionChain evolutionChain =
                                                 ]
                                             , div [ class "col-6" ]
                                                 [ div []
-                                                    [ pokemonImg Sprite pokemon.name ]
-                                                , div []
-                                                    [ text (capitalize pokemon.name) ]
+                                                    (pokemonCard { id = pokemon.id, name = pokemon.name, generation = pokemon.generation, types = [] })
                                                 ]
                                             ]
                                         ]
@@ -238,7 +372,7 @@ singlePokemonEvolutionChain evolutionChain =
     evolutionChainHtml
 
 
-singlePokemonData : FullPokemon -> Html Msg
+singlePokemonData : FullPokemon -> Html msg
 singlePokemonData pokemonRecord =
     div []
         [ h2 [ class "text-center" ] [ text (capitalize pokemonRecord.name) ]
@@ -254,7 +388,15 @@ singlePokemonData pokemonRecord =
                             ]
                         , tr []
                             [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Type:" ]
-                            , td [] (List.map (\elem -> pokemonType elem False True) pokemonRecord.types)
+                            , td []
+                                [ div [ class "row" ]
+                                    (pokemonRecord.types
+                                        |> List.map
+                                            (\elem ->
+                                                div [ class "col-4 no-gutters" ] [ pokemonTypeFull elem ]
+                                            )
+                                    )
+                                ]
                             ]
                         , tr []
                             [ td [ class "w-25 text-muted" ] [ text "Dex No.:" ]
@@ -263,7 +405,15 @@ singlePokemonData pokemonRecord =
                         , tr []
                             [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Abilities.:" ]
                             , td []
-                                (List.map pokemonAbility pokemonRecord.abilities)
+                                (pokemonRecord.abilities
+                                    |> List.map
+                                        (\elem ->
+                                            div [ class "row" ]
+                                                [ div [ class "col" ]
+                                                    [ pokemonAbility elem ]
+                                                ]
+                                        )
+                                )
                             ]
                         , tr []
                             [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Height:" ]
@@ -313,7 +463,34 @@ singlePokemonData pokemonRecord =
         ]
 
 
-pokemonGender : Int -> Html Msg
+pokemonAbility : PokemonAbilities -> Html msg
+pokemonAbility ability =
+    let
+        abilityEffect =
+            ability.shortEffect
+                |> regexReplace "({.*?})" (\_ -> "")
+                |> regexReplace "(\\[*\\]*)" (\_ -> "")
+
+        abilityTextHtml =
+            let
+                abilityText =
+                    capitalize ability.name
+            in
+            if ability.isHidden then
+                small [] [ text (abilityText ++ " (Hidden)") ]
+
+            else
+                text abilityText
+    in
+    div [ class "tooltip-custom" ]
+        [ abilityTextHtml
+        , span
+            [ class "tooltiptext" ]
+            [ text ability.shortEffect ]
+        ]
+
+
+pokemonGender : Int -> Html msg
 pokemonGender genderRate =
     if genderRate == -1 then
         text "Genderless"
@@ -337,85 +514,3 @@ pokemonGender genderRate =
                     [ text (String.fromFloat femalePercentage ++ "% Female") ]
                 ]
             ]
-
-
-pokemonType : String -> Bool -> Bool -> Html Msg
-pokemonType name renderDash isButtonStyle =
-    let
-        dash =
-            if renderDash then
-                " - "
-
-            else
-                ""
-    in
-    if isButtonStyle then
-        button
-            [ class "pokemon-type"
-            , style "background-color" (getColorFromType name)
-            ]
-            [ text (capitalize name) ]
-
-    else
-        button
-            [ class "btn btn-link"
-            , style "color" (getColorFromType name)
-            ]
-            [ text (capitalize name) ]
-
-
-pokemonImg : PokemonImage -> String -> Html Msg
-pokemonImg imgType pokemonName =
-    case imgType of
-        Full ->
-            let
-                url =
-                    String.concat [ " https://img.pokemondb.net/artwork/", String.toLower pokemonName, ".jpg" ]
-            in
-            img [ class "img-fluid", src url ] []
-
-        Sprite ->
-            let
-                url =
-                    String.concat [ "https://img.pokemondb.net/sprites/omega-ruby-alpha-sapphire/dex/normal/", String.toLower pokemonName, ".png" ]
-            in
-            img
-                [ class "img-fluid"
-                , style "margin" "0"
-                , style "position" "relative"
-                , style "top" "15px"
-                , style "z-index" "-10"
-                , src url
-                ]
-                []
-
-
-pokemonAbility : PokemonAbilities -> Html Msg
-pokemonAbility ability =
-    let
-        abilityEffect =
-            ability.shortEffect
-                |> regexReplace "({.*?})" (\_ -> "")
-                |> regexReplace "(\\[*\\]*)" (\_ -> "")
-
-        abilityTextHtml =
-            let
-                abilityText =
-                    capitalize ability.name
-            in
-            if ability.isHidden then
-                small [] [ text (abilityText ++ " (Hidden)") ]
-
-            else
-                text abilityText
-    in
-    div [ class "row" ]
-        [ div [ class "col" ]
-            [ div [ class "tooltip-custom" ]
-                [ abilityTextHtml
-                , span
-                    [ class "tooltiptext" ]
-                    [ text abilityEffect ]
-                ]
-            ]
-        ]

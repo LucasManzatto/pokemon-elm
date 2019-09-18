@@ -19,12 +19,6 @@ type alias WebData a =
     RemoteData Http.Error a
 
 
-type Route
-    = Pokedex
-    | SinglePokemon Int
-    | NotFound
-
-
 type PokemonImage
     = Full
     | Sprite
@@ -118,7 +112,7 @@ pokemonAbilitiesDecoder =
 
 
 type alias PokemonMoves =
-    { level : Int
+    { level : Maybe Int
     , order : Maybe Int
     , damageClass : String
     , name : String
@@ -130,12 +124,17 @@ type alias PokemonMoves =
     }
 
 
-type LearnMethods = LevelUp String | Egg String | TMMachine String | Tutor String
+type LearnMethods
+    = LevelUp String
+    | Egg String
+    | TMMachine String
+    | Tutor String
+
 
 pokemonMovesDecoder : Decoder PokemonMoves
 pokemonMovesDecoder =
     Decode.succeed PokemonMoves
-        |> required "level" Decode.int
+        |> required "level" (nullable Decode.int)
         |> required "order" (nullable Decode.int)
         |> optional "damageClass" string "Invalid Damage Class."
         |> optional "name" string "Invalid Name."
