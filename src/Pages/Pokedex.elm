@@ -6,12 +6,13 @@ import Debug exposing (log)
 import Dict exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Http exposing (get)
-import Json.Decode as Decode exposing (list)
+import Html.Events exposing (..)
 import List.Extra as List
 import Pages.Shared as Shared exposing (..)
+import Pages.SinglePokemon as SinglePokemonPage exposing (..)
 import Platform.Cmd exposing (Cmd)
 import Regex exposing (replace)
+import Route as Route exposing (..)
 import Types exposing (..)
 import Url exposing (Url)
 import Utils exposing (..)
@@ -19,22 +20,20 @@ import Utils exposing (..)
 
 type alias Model =
     { pokemons : List Pokemon
+    , selectedPokemon : Maybe SinglePokemon
     }
 
 
-getPokedex : Cmd Msg
-getPokedex =
-    Http.get
-        { url = apiUrl ++ "/Pokemons"
-        , expect = Http.expectJson (fromResult >> PokemonsReceived) (Decode.list pokemonDecoder)
-        }
+type SinglePokemon
+    = SinglePokemon SinglePokemonPage.Model
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( { pokemons = []
+      , selectedPokemon = Nothing
       }
-    , getPokedex
+    , Cmd.map GotApiMsg Api.getPokedex
     )
 
 
@@ -43,41 +42,74 @@ init _ =
 
 
 type Msg
-    = PokemonsReceived (WebData (List Pokemon))
+    = GotApiMsg Api.Msg
+    | ClickedPokemon Int
+    | GotPokemonMsg SinglePokemonPage.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        PokemonsReceived response ->
-            case response of
-                NotAsked ->
+        GotApiMsg apiMsg ->
+            case apiMsg of
+                PokemonsReceived response ->
+                    case response of
+                        Success pokemonsList ->
+                            ( { model | pokemons = pokemonsList }, Cmd.none )
+
+                        _ ->
+                            ( model, Cmd.none )
+
+                _ ->
                     ( model, Cmd.none )
 
-                Loading ->
+        GotPokemonMsg subMsg ->
+            case model.selectedPokemon of
+                Just (SinglePokemon selectedPokemon) ->
+                    SinglePokemonPage.update subMsg selectedPokemon
+                        |> updateWith SinglePokemon GotPokemonMsg model
+
+                _ ->
                     ( model, Cmd.none )
 
-                Success pokemonsList ->
-                    ( { model | pokemons = pokemonsList }, Cmd.none )
-
-                Failure _ ->
-                    ( model, Cmd.none )
+        ClickedPokemon id ->
+            SinglePokemonPage.init () id
+                |> updateWith SinglePokemon GotPokemonMsg model
 
 
-view : Model -> Html msg
+updateWith : (subModel -> SinglePokemon) -> (subMsg -> Msg) -> Model -> ( subModel, Cmd subMsg ) -> ( Model, Cmd Msg )
+updateWith toModel toMsg model ( subModel, subCmd ) =
+    ( { model | selectedPokemon = Just (toModel subModel) }
+    , Cmd.map toMsg subCmd
+    )
+
+
+view : Model -> Html Msg
 view model =
     let
         pokemonsGroupedByGeneration =
             List.gatherEqualsBy .generation model.pokemons
 
         pokedexGens =
-            List.map pokedexGeneration pokemonsGroupedByGeneration
+            pokemonsGroupedByGeneration
+                |> List.map (\pokemonGroup -> pokedexGeneration pokemonGroup)
+
+        viewWithSelectedPokemon =
+            case model.selectedPokemon of
+                Just (SinglePokemon selectedPokemon) ->
+                    div [ class "row" ]
+                        [ div [ class "col-6" ] pokedexGens
+                        , div [ class "col-6" ] [ SinglePokemonPage.view selectedPokemon ]
+                        ]
+
+                Nothing ->
+                    div [ class "row" ]
+                        pokedexGens
     in
-    div [ class "row" ]
-        pokedexGens
+    viewWithSelectedPokemon
 
 
-pokedexGeneration : ( Pokemon, List Pokemon ) -> Html msg
+pokedexGeneration : ( Pokemon, List Pokemon ) -> Html Msg
 pokedexGeneration ( firstPokemonFromGen, genList ) =
     let
         generation =
@@ -92,6 +124,14 @@ pokedexGeneration ( firstPokemonFromGen, genList ) =
 
                 _ ->
                     ""
+
+        viewPokemonCards =
+            (firstPokemonFromGen :: genList)
+                |> List.map
+                    (\poke ->
+                        div [ class "text-center", style "width" "12.5%" ]
+                            (pokemonCard poke)
+                    )
     in
     div [ class "col-12" ]
         [ div
@@ -105,11 +145,47 @@ pokedexGeneration ( firstPokemonFromGen, genList ) =
                 [ text formatedGen ]
             ]
         , div [ class "row" ]
-            ((firstPokemonFromGen :: genList)
-                |> List.map
-                    (\poke ->
-                        div [ class "text-center", style "width" "12.5%" ]
-                            (Shared.pokemonCard poke)
-                    )
-            )
+            viewPokemonCards
         ]
+
+
+pokemonCard : Pokemon -> List (Html Msg)
+pokemonCard pokemonRecord =
+    let
+        formatedPokemonNumber =
+            "#" ++ String.padLeft 3 '0' (String.fromInt pokemonRecord.id)
+
+        types =
+            case pokemonRecord.types of
+                [ firstType, secondType ] ->
+                    div [ class "row justify-content-center no-gutters" ]
+                        [ pokemonTypeLink firstType
+                        , text " - "
+                        , pokemonTypeLink secondType
+                        ]
+
+                [ justFirst ] ->
+                    div [ class "row justify-content-center no-gutters" ]
+                        [ div [ class "col-4" ] [ pokemonTypeLink justFirst ]
+                        ]
+
+                _ ->
+                    text ""
+    in
+    [ div []
+        [ h2 [] []
+        , pokemonImgSprite pokemonRecord.name pokemonRecord.generation
+        ]
+    , div []
+        [ text formatedPokemonNumber ]
+    , div []
+        [ button
+            [ style "padding" "0"
+            , class "btn btn-link font-weight-bold"
+            , onClick (ClickedPokemon pokemonRecord.id)
+            ]
+            [ text (capitalize pokemonRecord.name) ]
+        ]
+    , div []
+        [ types ]
+    ]

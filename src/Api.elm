@@ -14,33 +14,46 @@ apiUrl =
     "http://localhost:58803/api"
 
 
-type ApiMsg
+pokemonsUrl : String
+pokemonsUrl =
+    apiUrl ++ "/Pokemons/"
+
+
+type Msg
     = PokemonsReceived (WebData (List Pokemon))
     | FullPokemonReceived (WebData FullPokemon)
     | PokemonEvolutionChainReceived (WebData (List PokemonEvolutionChain))
     | MaxStatsReceived (WebData PokemonStats)
 
 
-getMaxStats : Cmd ApiMsg
+getMaxStats : Cmd Msg
 getMaxStats =
     Http.get
-        { url = apiUrl ++ "/Pokemons/maxStats"
+        { url = pokemonsUrl ++ "maxStats"
         , expect =
             Http.expectJson (fromResult >> MaxStatsReceived) pokemonStatsDecoder
         }
 
 
-getPokemon : Int -> Cmd ApiMsg
+getPokemon : Int -> Cmd Msg
 getPokemon pokemonId =
     Http.get
-        { url = apiUrl ++ "/Pokemons/" ++ String.fromInt pokemonId
+        { url = pokemonsUrl ++ String.fromInt pokemonId
         , expect = Http.expectJson (fromResult >> FullPokemonReceived) fullPokemonDecoder
         }
 
 
-getPokemonEvolutionChain : Int -> Cmd ApiMsg
+getPokemonEvolutionChain : Int -> Cmd Msg
 getPokemonEvolutionChain pokemonId =
     Http.get
-        { url = apiUrl ++ "/Pokemons/" ++ String.fromInt pokemonId ++ "/evolutionChain"
+        { url = pokemonsUrl ++ String.fromInt pokemonId ++ "/evolutionChain"
         , expect = Http.expectJson (fromResult >> PokemonEvolutionChainReceived) (Decode.list pokemonEvolutionChainDecoder)
+        }
+
+
+getPokedex : Cmd Msg
+getPokedex =
+    Http.get
+        { url = pokemonsUrl
+        , expect = Http.expectJson (fromResult >> PokemonsReceived) (Decode.list pokemonDecoder)
         }

@@ -7,8 +7,8 @@ import Debug exposing (log)
 import Dict exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Pages.Pokedex as Pokedex exposing (..)
-import Pages.SinglePokemon as SinglePokemon exposing (..)
+import Pages.Pokedex as PokedexPage exposing (..)
+import Pages.SinglePokemon as SinglePokemonPage exposing (..)
 import Platform.Cmd exposing (Cmd)
 import Route exposing (Route)
 import Types exposing (..)
@@ -23,13 +23,14 @@ type alias Model =
 
 
 type CurrentPage
-    = Pokedex Pokedex.Model
-    | SinglePokemon SinglePokemon.Model
+    = Pokedex PokedexPage.Model
+    | SinglePokemon SinglePokemonPage.Model
 
 
-pokedexModel : Pokedex.Model
+pokedexModel : PokedexPage.Model
 pokedexModel =
     { pokemons = []
+    , selectedPokemon = Nothing
     }
 
 
@@ -45,8 +46,8 @@ init _ url navKey =
 type Msg
     = ChangedUrl Url
     | ClickedLink UrlRequest
-    | GotPokedexMsg Pokedex.Msg
-    | GotPokemonMsg SinglePokemon.Msg
+    | GotPokedexMsg PokedexPage.Msg
+    | GotPokemonMsg SinglePokemonPage.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -55,7 +56,7 @@ update msg model =
         GotPokedexMsg subMsg ->
             case model.currentPage of
                 Pokedex pokedex ->
-                    Pokedex.update subMsg pokedex
+                    PokedexPage.update subMsg pokedex
                         |> updateWith Pokedex GotPokedexMsg model
 
                 _ ->
@@ -64,7 +65,7 @@ update msg model =
         GotPokemonMsg subMsg ->
             case model.currentPage of
                 SinglePokemon singlePokemon ->
-                    SinglePokemon.update subMsg singlePokemon
+                    SinglePokemonPage.update subMsg singlePokemon
                         |> updateWith SinglePokemon GotPokemonMsg model
 
                 _ ->
@@ -80,11 +81,6 @@ update msg model =
 
         ChangedUrl url ->
             changeRouteTo (url |> Url.toString |> Route.toRoute) model
-
-
-test : Model -> ( Model, Cmd Msg )
-test model =
-    ( model, Cmd.none )
 
 
 updateWith : (subModel -> CurrentPage) -> (subMsg -> Msg) -> Model -> ( subModel, Cmd subMsg ) -> ( Model, Cmd Msg )
@@ -110,10 +106,10 @@ view model =
                 ]
             , case model.currentPage of
                 Pokedex pokedex ->
-                    Pokedex.view pokedex
+                    Html.map GotPokedexMsg (PokedexPage.view pokedex)
 
                 SinglePokemon singlePokemon ->
-                    SinglePokemon.view singlePokemon
+                    SinglePokemonPage.view singlePokemon
             ]
         ]
     }
@@ -138,11 +134,11 @@ changeRouteTo route model =
             ( model, Cmd.none )
 
         Route.Pokedex ->
-            Pokedex.init ()
+            PokedexPage.init ()
                 |> updateWith Pokedex GotPokedexMsg model
 
         Route.SinglePokemon id ->
-            SinglePokemon.init () id
+            SinglePokemonPage.init () id
                 |> updateWith SinglePokemon GotPokemonMsg model
 
 

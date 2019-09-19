@@ -1,21 +1,16 @@
-module Pages.SinglePokemon exposing (..)
+module Pages.SinglePokemon exposing (Model, Msg, init, initModel, update, view)
 
-import Api as Api exposing (..)
-import Browser exposing (Document, UrlRequest(..))
-import Debug exposing (log)
-import Dict exposing (..)
-import Html exposing (..)
-import Html.Attributes exposing (..)
-import Http exposing (get)
+import Api as Api exposing (Msg, getMaxStats, getPokemon, getPokemonEvolutionChain)
+import Browser exposing (UrlRequest(..))
+import Dict exposing (Dict)
+import Html exposing (Html, button, div, h2, small, span, table, tbody, td, text, tr)
+import Html.Attributes exposing (class, disabled, style)
 import Ionicon
-import Json.Decode as Decode exposing (list)
 import List.Extra as List
-import Pages.PokemonMoves as PokemonMoves exposing (..)
-import Pages.Shared as Shared exposing (..)
+import Pages.PokemonMoves as PokemonMoves exposing (view)
+import Pages.Shared as Shared exposing (pokemonImgFull)
 import Platform.Cmd exposing (Cmd)
-import Regex exposing (replace)
 import Types exposing (..)
-import Url exposing (Url)
 import Utils exposing (..)
 
 
@@ -34,35 +29,10 @@ initModel =
     }
 
 
-getPokemon : Int -> Cmd Msg
-getPokemon pokemonId =
-    Http.get
-        { url = apiUrl ++ "/Pokemons/" ++ String.fromInt pokemonId
-        , expect = Http.expectJson (fromResult >> FullPokemonReceived) fullPokemonDecoder
-        }
-
-
-getMaxStats : Cmd Msg
-getMaxStats =
-    Http.get
-        { url = apiUrl ++ "/Pokemons/maxStats"
-        , expect =
-            Http.expectJson (fromResult >> MaxStatsReceived) pokemonStatsDecoder
-        }
-
-
-getPokemonEvolutionChain : Int -> Cmd Msg
-getPokemonEvolutionChain pokemonId =
-    Http.get
-        { url = apiUrl ++ "/Pokemons/" ++ String.fromInt pokemonId ++ "/evolutionChain"
-        , expect = Http.expectJson (fromResult >> PokemonEvolutionChainReceived) (Decode.list pokemonEvolutionChainDecoder)
-        }
-
-
 init : () -> Int -> ( Model, Cmd Msg )
 init _ pokemonId =
     ( initModel
-    , Cmd.batch [ getPokemon pokemonId, getMaxStats, getPokemonEvolutionChain pokemonId ]
+    , Cmd.map GotApiMsg (Cmd.batch [ getPokemon pokemonId, getMaxStats, getPokemonEvolutionChain pokemonId ])
     )
 
 
@@ -71,22 +41,25 @@ init _ pokemonId =
 
 
 type Msg
-    = FullPokemonReceived (WebData FullPokemon)
-    | MaxStatsReceived (WebData PokemonStats)
-    | PokemonEvolutionChainReceived (WebData (List PokemonEvolutionChain))
+    = GotApiMsg Api.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        FullPokemonReceived response ->
-            ( { model | pokemon = response }, Cmd.none )
+        GotApiMsg apiMsg ->
+            case apiMsg of
+                Api.FullPokemonReceived response ->
+                    ( { model | pokemon = response }, Cmd.none )
 
-        MaxStatsReceived response ->
-            ( { model | maxStats = response }, Cmd.none )
+                Api.MaxStatsReceived response ->
+                    ( { model | maxStats = response }, Cmd.none )
 
-        PokemonEvolutionChainReceived response ->
-            ( { model | evolutionChain = response }, Cmd.none )
+                Api.PokemonEvolutionChainReceived response ->
+                    ( { model | evolutionChain = response }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
 
 
 
@@ -140,47 +113,78 @@ viewPokemon pokemon maxStats evolutionChain =
                 Failure _ ->
                     text "Error getting evolution chain."
     in
-    div
-        [ class "row justify-content-center" ]
-        [ div [ class "col-4 text-center" ]
-            [ pokemonImgFull pokemon.name
+    div [ class "row justify-content-center" ]
+        [ div [ class "col-12 text-center" ]
+            [ Shared.pokemonImgFull pokemon.name
             ]
-        , div
-            [ class "col-8" ]
+        , div [ class "col-12" ]
             [ singlePokemonData pokemon ]
+        , div [ class "col-12" ]
+            [ h2 [] [ text "Stats" ]
+            ]
+        , div [ class "col-12" ]
+            [ viewMaxStats ]
         , div
             [ class "col-12" ]
-            [ div [ class "row" ]
-                [ div [ class "col-8" ]
-                    [ div [ class "row" ]
-                        [ div [ class "col-12" ]
-                            [ h2 [] [ text "Stats" ] ]
-                        , div [ class "col-12" ]
-                            [ viewMaxStats
-                            ]
-                        ]
-                    ]
-                , div [ class "col-4" ]
-                    [ div [ class "row" ]
-                        [ div [ class "col-12" ]
-                            [ h2 [] [ text "Type Defenses" ] ]
-                        , div [ class "col-12" ]
-                            [ viewEfficacies pokemon.efficacies
-                            ]
-                        ]
-                    ]
-                ]
+            [ h2 [] [ text "Type Defenses" ]
+            ]
+        , div [ class "col-12" ]
+            [ viewEfficacies pokemon.efficacies
             ]
         , div [ class "col-12" ]
             [ h2 [] [ text "Evolution Chain" ]
             ]
-        , div
-            [ class "col-10" ]
+        , div [ class "col-12" ]
             [ viewEvoChain ]
         , div [ class "col-12" ]
-            [ h2 [] [ text "Moves" ] ]
+            [ h2 [] [ text "Moves" ]
+            ]
         , div [ class "col-12" ] [ PokemonMoves.view pokemon.moves ]
         ]
+
+
+
+-- div
+-- [ class "row justify-content-center" ]
+-- [ div [ class "col-4 text-center" ]
+--     [ Shared.pokemonImgFull pokemon.name
+--     ]
+-- , div
+--     [ class "col-8" ]
+--     [ singlePokemonData pokemon ]
+-- , div
+--     [ class "col-12" ]
+--     [ div [ class "row" ]
+--         [ div [ class "col-8" ]
+--             [ div [ class "row" ]
+--                 [ div [ class "col-12" ]
+--                     [ h2 [] [ text "Stats" ] ]
+--                 , div [ class "col-12" ]
+--                     [ viewMaxStats
+--                     ]
+--                 ]
+--             ]
+--         , div [ class "col-4" ]
+--             [ div [ class "row" ]
+--                 [ div [ class "col-12" ]
+--                     [ h2 [] [ text "Type Defenses" ] ]
+--                 , div [ class "col-12" ]
+--                     [ viewEfficacies pokemon.efficacies
+--                     ]
+--                 ]
+--             ]
+--         ]
+--     ]
+-- , div [ class "col-12" ]
+--     [ h2 [] [ text "Evolution Chain" ]
+--     ]
+-- , div
+--     [ class "col-10" ]
+--     [ viewEvoChain ]
+-- , div [ class "col-12" ]
+--     [ h2 [] [ text "Moves" ] ]
+-- , div [ class "col-12" ] [ PokemonMoves.view pokemon.moves ]
+-- ]
 
 
 allStats : PokemonStats -> PokemonStats -> Html msg
@@ -226,18 +230,21 @@ viewEfficacies efficacies =
 
 efficacyRow : List ( String, Float ) -> Html msg
 efficacyRow row =
-    div [ class "col-12" ]
-        [ div
-            [ class "row no-gutters" ]
-            (row
+    let
+        viewRow =
+            row
                 |> List.map
                     (\( pokemonTypeName, multiplier ) ->
                         div [ style "width" "11.11%" ]
-                            [ div [ class "mb-1" ] [ pokemonTypeAbbreviated pokemonTypeName ]
+                            [ div [ class "mb-1" ] [ Shared.pokemonTypeAbbreviated pokemonTypeName ]
                             , efficacy multiplier
                             ]
                     )
-            )
+    in
+    div [ class "col-12" ]
+        [ div
+            [ class "row no-gutters" ]
+            viewRow
         ]
 
 
@@ -342,7 +349,7 @@ viewEvolutionChain evoChain =
                             [ div
                                 [ class "col-2" ]
                                 [ div []
-                                    (pokemonCard { id = firstPokemonFromChain.id, name = firstPokemonFromChain.name, generation = firstPokemonFromChain.generation, types = [] })
+                                    (Shared.pokemonCard { id = firstPokemonFromChain.id, name = firstPokemonFromChain.name, generation = firstPokemonFromChain.generation, types = [] })
                                 ]
                             ]
                             (List.map
@@ -357,7 +364,7 @@ viewEvolutionChain evoChain =
                                                 ]
                                             , div [ class "col-6" ]
                                                 [ div []
-                                                    (pokemonCard { id = pokemon.id, name = pokemon.name, generation = pokemon.generation, types = [] })
+                                                    (Shared.pokemonCard { id = pokemon.id, name = pokemon.name, generation = pokemon.generation, types = [] })
                                                 ]
                                             ]
                                         ]
@@ -374,6 +381,24 @@ viewEvolutionChain evoChain =
 
 singlePokemonData : FullPokemon -> Html msg
 singlePokemonData pokemonRecord =
+    let
+        types =
+            pokemonRecord.types
+                |> List.map
+                    (\elem ->
+                        div [ class "col-4 no-gutters" ] [ Shared.pokemonTypeFull elem ]
+                    )
+
+        abilities =
+            pokemonRecord.abilities
+                |> List.map
+                    (\elem ->
+                        div [ class "row" ]
+                            [ div [ class "col" ]
+                                [ pokemonAbility elem ]
+                            ]
+                    )
+    in
     div []
         [ h2 [ class "text-center" ] [ text (capitalize pokemonRecord.name) ]
         , div
@@ -390,12 +415,7 @@ singlePokemonData pokemonRecord =
                             [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Type:" ]
                             , td []
                                 [ div [ class "row" ]
-                                    (pokemonRecord.types
-                                        |> List.map
-                                            (\elem ->
-                                                div [ class "col-4 no-gutters" ] [ pokemonTypeFull elem ]
-                                            )
-                                    )
+                                    types
                                 ]
                             ]
                         , tr []
@@ -405,15 +425,7 @@ singlePokemonData pokemonRecord =
                         , tr []
                             [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Abilities.:" ]
                             , td []
-                                (pokemonRecord.abilities
-                                    |> List.map
-                                        (\elem ->
-                                            div [ class "row" ]
-                                                [ div [ class "col" ]
-                                                    [ pokemonAbility elem ]
-                                                ]
-                                        )
-                                )
+                                abilities
                             ]
                         , tr []
                             [ td [ class "w-25 text-muted", style "vertical-align" "middle" ] [ text "Height:" ]

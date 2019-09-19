@@ -163,14 +163,23 @@ view pokemonMoves =
             div [ class "row" ]
                 (List.map
                     (\col ->
-                        div [ class "col-6" ]
-                            [ div [ class "row" ]
-                                [ div [ class "col-12" ]
-                                    col
-                                ]
-                            ]
+                        div [ class "col-12" ]
+                            col
                     )
                     orderedGroupMoves
                 )
+
+        -- div [ class "row" ]
+        --     (List.map
+        --         (\col ->
+        --             div [ class "col-6" ]
+        --                 [ div [ class "row" ]
+        --                     [ div [ class "col-12" ]
+        --                         col
+        --                     ]
+        --                 ]
+        --         )
+        --         orderedGroupMoves
+        --     )
     in
     html
