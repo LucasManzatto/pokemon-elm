@@ -11,6 +11,7 @@ import Pages.Pokedex as PokedexPage exposing (..)
 import Pages.SinglePokemon as SinglePokemonPage exposing (..)
 import Platform.Cmd exposing (Cmd)
 import Route exposing (Route)
+import Time
 import Types exposing (..)
 import Url exposing (Url)
 import Utils exposing (..)
@@ -19,6 +20,7 @@ import Utils exposing (..)
 type alias Model =
     { currentPage : CurrentPage
     , navKey : Nav.Key
+    , time : Time.Posix
     }
 
 
@@ -27,16 +29,9 @@ type CurrentPage
     | SinglePokemon SinglePokemonPage.Model
 
 
-pokedexModel : PokedexPage.Model
-pokedexModel =
-    { pokemons = []
-    , selectedPokemon = Nothing
-    }
-
-
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url navKey =
-    changeRouteTo (url |> Url.toString |> Route.toRoute) { currentPage = Pokedex pokedexModel, navKey = navKey }
+    changeRouteTo (url |> Url.toString |> Route.toRoute) { currentPage = Pokedex PokedexPage.initPokedex, navKey = navKey, time = Time.millisToPosix 0 }
 
 
 
@@ -48,6 +43,7 @@ type Msg
     | ClickedLink UrlRequest
     | GotPokedexMsg PokedexPage.Msg
     | GotPokemonMsg SinglePokemonPage.Msg
+    | Tick Time.Posix
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -81,6 +77,9 @@ update msg model =
 
         ChangedUrl url ->
             changeRouteTo (url |> Url.toString |> Route.toRoute) model
+
+        Tick newTime ->
+            ( { model | time = newTime }, Cmd.none )
 
 
 updateWith : (subModel -> CurrentPage) -> (subMsg -> Msg) -> Model -> ( subModel, Cmd subMsg ) -> ( Model, Cmd Msg )
@@ -146,13 +145,23 @@ changeRouteTo route model =
 -------------------------- MAIN -----------------
 
 
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    case model.currentPage of
+        Pokedex pokedexModel ->
+            Sub.map GotPokedexMsg (PokedexPage.subscriptions pokedexModel)
+
+        _ ->
+            Sub.none
+
+
 main : Program () Model Msg
 main =
     Browser.application
         { init = init
         , update = update
         , view = view
-        , subscriptions = \_ -> Sub.none
+        , subscriptions = subscriptions
         , onUrlRequest = ClickedLink
         , onUrlChange = ChangedUrl
         }

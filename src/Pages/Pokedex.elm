@@ -1,9 +1,11 @@
-module Pages.Pokedex exposing (Model, Msg, init, update, view)
+module Pages.Pokedex exposing (Model, Msg, init, initPokedex, subscriptions, update, view)
 
 import Api as Api exposing (..)
 import Browser exposing (Document, UrlRequest(..))
+import Browser.Events exposing (onAnimationFrame)
 import Debug exposing (log)
 import Dict exposing (..)
+import Ease
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -13,28 +15,48 @@ import Pages.SinglePokemon as SinglePokemonPage exposing (..)
 import Platform.Cmd exposing (Cmd)
 import Regex exposing (replace)
 import Route as Route exposing (..)
+import Task
+import Time as Time exposing (..)
+import Transit
+import TransitStyle
 import Types exposing (..)
 import Url exposing (Url)
 import Utils exposing (..)
 
 
 type alias Model =
-    { pokemons : List Pokemon
-    , selectedPokemon : Maybe SinglePokemon
-    }
+    Transit.WithTransition
+        { pokemons : List Pokemon
+        , selectedPokemon : Maybe SinglePokemon
+        , slideValues : List Float
+        , time : Time.Posix
+        }
 
 
 type SinglePokemon
     = SinglePokemon SinglePokemonPage.Model
 
 
+initPokedex : Model
+initPokedex =
+    { pokemons = []
+    , selectedPokemon = Nothing
+    , slideValues = List.map (\i -> Ease.inQuad (toFloat i / 10)) (List.range 0 10)
+    , time = Time.millisToPosix 0
+    , transition = Transit.empty
+    }
+
+
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { pokemons = []
-      , selectedPokemon = Nothing
-      }
-    , Cmd.map GotApiMsg Api.getPokedex
+    ( initPokedex
+    , Cmd.batch [ Cmd.map GotApiMsg Api.getPokedex ]
     )
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Transit.subscriptions TransitMsg model
 
 
 
@@ -45,6 +67,9 @@ type Msg
     = GotApiMsg Api.Msg
     | ClickedPokemon Int
     | GotPokemonMsg SinglePokemonPage.Msg
+    | Slide Time.Posix
+    | TransitMsg (Transit.Msg Msg)
+    | Click Int
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -76,6 +101,15 @@ update msg model =
             SinglePokemonPage.init () id
                 |> updateWith SinglePokemon GotPokemonMsg model
 
+        Slide newTime ->
+            ( { model | time = newTime }, Cmd.none )
+
+        Click id ->
+            Transit.start TransitMsg (ClickedPokemon id) ( 100, 200 ) model
+
+        TransitMsg a ->
+            Transit.tick TransitMsg a model
+
 
 updateWith : (subModel -> SinglePokemon) -> (subMsg -> Msg) -> Model -> ( subModel, Cmd subMsg ) -> ( Model, Cmd Msg )
 updateWith toModel toMsg model ( subModel, subCmd ) =
@@ -92,25 +126,28 @@ view model =
 
         pokedexGens =
             pokemonsGroupedByGeneration
-                |> List.map (\pokemonGroup -> pokedexGeneration pokemonGroup)
+                |> List.map (\pokemonGroup -> pokedexGeneration model.selectedPokemon pokemonGroup)
 
         viewWithSelectedPokemon =
-            case model.selectedPokemon of
-                Just (SinglePokemon selectedPokemon) ->
-                    div [ class "row" ]
-                        [ div [ class "col-6" ] pokedexGens
-                        , div [ class "col-6" ] [ SinglePokemonPage.view selectedPokemon ]
-                        ]
+            let
+                ( showPokemon, selectedPokemon ) =
+                    case model.selectedPokemon of
+                        Just (SinglePokemon poke) ->
+                            ( style "display" "initial", poke )
 
-                Nothing ->
-                    div [ class "row" ]
-                        pokedexGens
+                        Nothing ->
+                            ( style "display" "none", SinglePokemonPage.initModel )
+            in
+            div (showPokemon :: class "col" :: TransitStyle.fadeSlide 50 model.transition) [ SinglePokemonPage.view selectedPokemon ]
     in
-    viewWithSelectedPokemon
+    div [ class "row" ]
+        [ div [ class "col" ] pokedexGens
+        , viewWithSelectedPokemon
+        ]
 
 
-pokedexGeneration : ( Pokemon, List Pokemon ) -> Html Msg
-pokedexGeneration ( firstPokemonFromGen, genList ) =
+pokedexGeneration : Maybe SinglePokemon -> ( Pokemon, List Pokemon ) -> Html Msg
+pokedexGeneration selectedPokemon ( firstPokemonFromGen, genList ) =
     let
         generation =
             firstPokemonFromGen.generation
@@ -129,7 +166,16 @@ pokedexGeneration ( firstPokemonFromGen, genList ) =
             (firstPokemonFromGen :: genList)
                 |> List.map
                     (\poke ->
-                        div [ class "text-center", style "width" "12.5%" ]
+                        let
+                            pokemonsInRow =
+                                case selectedPokemon of
+                                    Just (SinglePokemon _) ->
+                                        "25%"
+
+                                    Nothing ->
+                                        "12.5%"
+                        in
+                        div [ class "text-center", style "width" pokemonsInRow ]
                             (pokemonCard poke)
                     )
     in
@@ -182,7 +228,7 @@ pokemonCard pokemonRecord =
         [ button
             [ style "padding" "0"
             , class "btn btn-link font-weight-bold"
-            , onClick (ClickedPokemon pokemonRecord.id)
+            , onClick (Click pokemonRecord.id)
             ]
             [ text (capitalize pokemonRecord.name) ]
         ]

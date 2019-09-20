@@ -27,6 +27,7 @@ pokemonType isAbbreviated isButtonStyle name =
             [ class "pokemon-type"
             , style "background-color" (getColorFromType name)
             , style "width" "95%"
+            , style "min-width" "60px"
             , style "max-width" "92px"
             , style "margin" "0"
             ]

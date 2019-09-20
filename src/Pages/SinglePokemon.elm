@@ -114,10 +114,7 @@ viewPokemon pokemon maxStats evolutionChain =
                     text "Error getting evolution chain."
     in
     div [ class "row justify-content-center" ]
-        [ div [ class "col-12 text-center" ]
-            [ Shared.pokemonImgFull pokemon.name
-            ]
-        , div [ class "col-12" ]
+        [ div [ class "col-12" ]
             [ singlePokemonData pokemon ]
         , div [ class "col-12" ]
             [ h2 [] [ text "Stats" ]
