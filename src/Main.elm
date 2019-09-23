@@ -1,5 +1,6 @@
 module Main exposing (..)
 
+import Api as Api exposing(..)
 import Bootstrap.CDN as CDN
 import Browser exposing (Document, UrlRequest(..))
 import Browser.Navigation as Nav
@@ -20,7 +21,8 @@ import Utils exposing (..)
 type alias Model =
     { currentPage : CurrentPage
     , navKey : Nav.Key
-    , time : Time.Posix
+    , route : Route
+    , maxStats : WebData PokemonStats
     }
 
 
@@ -31,7 +33,8 @@ type CurrentPage
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url navKey =
-    changeRouteTo (url |> Url.toString |> Route.toRoute) { currentPage = Pokedex PokedexPage.initPokedex, navKey = navKey, time = Time.millisToPosix 0 }
+    ({currentPage = Pokedex PokedexPage.initPokedex, navKey = navKey,route = url |> Url.toString |> Route.toRoute ,maxStats = NotAsked}
+    , Cmd.batch [ Cmd.map GotApiMsg Api.getMaxStats])
 
 
 
@@ -43,7 +46,7 @@ type Msg
     | ClickedLink UrlRequest
     | GotPokedexMsg PokedexPage.Msg
     | GotPokemonMsg SinglePokemonPage.Msg
-    | Tick Time.Posix
+    | GotApiMsg Api.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -51,8 +54,8 @@ update msg model =
     case msg of
         GotPokedexMsg subMsg ->
             case model.currentPage of
-                Pokedex pokedex ->
-                    PokedexPage.update subMsg pokedex
+                Pokedex pokedexModel ->
+                    PokedexPage.update subMsg {pokedexModel | maxStats = model.maxStats}
                         |> updateWith Pokedex GotPokedexMsg model
 
                 _ ->
@@ -60,8 +63,8 @@ update msg model =
 
         GotPokemonMsg subMsg ->
             case model.currentPage of
-                SinglePokemon singlePokemon ->
-                    SinglePokemonPage.update subMsg singlePokemon
+                SinglePokemon singlePokemonModel ->
+                    SinglePokemonPage.update subMsg {singlePokemonModel | maxStats = model.maxStats}
                         |> updateWith SinglePokemon GotPokemonMsg model
 
                 _ ->
@@ -78,8 +81,13 @@ update msg model =
         ChangedUrl url ->
             changeRouteTo (url |> Url.toString |> Route.toRoute) model
 
-        Tick newTime ->
-            ( { model | time = newTime }, Cmd.none )
+        GotApiMsg apiMsg ->
+            case apiMsg of
+                Api.MaxStatsReceived response->
+                    changeRouteTo model.route {model | maxStats = response}
+                _ ->
+                    (model,Cmd.none)
+
 
 
 updateWith : (subModel -> CurrentPage) -> (subMsg -> Msg) -> Model -> ( subModel, Cmd subMsg ) -> ( Model, Cmd Msg )
@@ -137,7 +145,7 @@ changeRouteTo route model =
                 |> updateWith Pokedex GotPokedexMsg model
 
         Route.SinglePokemon id ->
-            SinglePokemonPage.init () id
+            SinglePokemonPage.init () id 
                 |> updateWith SinglePokemon GotPokemonMsg model
 
 

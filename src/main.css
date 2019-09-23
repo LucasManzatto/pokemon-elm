@@ -93,3 +93,29 @@ td {
   -ms-user-select: none;
   user-select: none;
 }
+
+.single-pokemon {
+	-webkit-transform: translateX(100%);
+			transform: translateX(100%);
+  transition: transform 300ms linear;
+  will-change: transform;
+}
+.single-pokemon-open {
+	-webkit-transform: translateX(0%);
+			transform: translateX(0%);
+  transition: transform 300ms linear;
+  will-change: transform;
+}
+
+.pokedex {
+	-webkit-transform: translateX(50%);
+			transform: translateX(50%);
+  transition: transform 300ms linear;
+  will-change: transform;
+}
+.pokedex-open {
+	-webkit-transform: translateX(0%);
+			transform: translateX(0%);  
+  transition: transform 300ms linear;
+  will-change: transform;
+}

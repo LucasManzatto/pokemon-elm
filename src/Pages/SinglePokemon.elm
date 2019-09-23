@@ -28,11 +28,10 @@ initModel =
     , evolutionChain = NotAsked
     }
 
-
 init : () -> Int -> ( Model, Cmd Msg )
 init _ pokemonId =
     ( initModel
-    , Cmd.map GotApiMsg (Cmd.batch [ getPokemon pokemonId, getMaxStats, getPokemonEvolutionChain pokemonId ])
+    , Cmd.map GotApiMsg (Cmd.batch [ getPokemon pokemonId ])
     )
 
 
@@ -70,7 +69,7 @@ view : Model -> Html msg
 view model =
     case model.pokemon of
         NotAsked ->
-            text ""
+            div [class "row"] []
 
         Loading ->
             text "Loading"
@@ -114,7 +113,9 @@ viewPokemon pokemon maxStats evolutionChain =
                     text "Error getting evolution chain."
     in
     div [ class "row justify-content-center" ]
-        [ div [ class "col-12" ]
+        [ div [ class "col-12 text-center" , style "height" "420px" ]
+            [ Shared.pokemonImgFull pokemon.name ]
+        , div [ class "col-12" ]
             [ singlePokemonData pokemon ]
         , div [ class "col-12" ]
             [ h2 [] [ text "Stats" ]
@@ -125,7 +126,7 @@ viewPokemon pokemon maxStats evolutionChain =
             [ class "col-12" ]
             [ h2 [] [ text "Type Defenses" ]
             ]
-        , div [ class "col-12" ]
+        , div [ class "col-8" ]
             [ viewEfficacies pokemon.efficacies
             ]
         , div [ class "col-12" ]
@@ -259,6 +260,8 @@ efficacy multiplier =
                 button
                     [ class "pokemon-type"
                     , style "width" "95%"
+                    , style "min-width" "60px"
+                    , style "max-width" "92px"
                     , style "background-color" (getEfficacyColor multiplier)
                     , disabled True
                     ]
